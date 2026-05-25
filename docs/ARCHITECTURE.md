@@ -228,39 +228,14 @@ Logique isolée et testée dans `apps/web/src/features/dashboard/lib/derive-pati
 
 ---
 
-## ADR-007 — Extraction des modules métier purs hors des composants React
-
-**Statut** : Accepté
-**Date** : 2026-05-25
-
-### Contexte
-
-Trois logiques non triviales auraient pu vivre inline dans des composants : dérivation des statuts patients depuis les `ActionLog`, simulation de l'étape suivante (preview), et validation de cohérence du graphe. Inlinées, elles seraient impossibles à tester sans monter un DOM et un canvas React Flow.
-
-### Décision
-
-Extraire systématiquement ces logiques en modules purs, sans dépendance React, colocalisés par feature :
-
-- `apps/web/src/features/dashboard/lib/derive-patients.ts`
-- `apps/web/src/features/patient-preview/lib/preview-exec.ts`
-- `apps/web/src/features/editor/lib/validation.ts`
-
-Les composants se contentent d'appeler ces fonctions et de rendre le résultat.
-
-### Conséquences
-
-- Tests unitaires Vitest à plat, sans `render`, ce qui explique la coverage web élevée (98.5% lignes / 88.7% branches) atteinte en P-01.
-- Logique réutilisable entre vues (ex. dérivation partagée dashboard/patient view).
-- Convention claire : un fichier `lib/` par feature pour le métier pur ; les `.tsx` restent de la présentation.
-
-### Alternatives considérées
-
-- **Logique inline dans les composants** : non testable sans DOM, couplée au rendu, dupliquée entre vues. Refusé.
-
----
-
 ## Notes transverses
 
 - Aucun envoi réel de message dans le périmètre. La couche d'intégration (`IChannelSender`) est volontairement laissée comme stub testable, persistant les « envois simulés » dans la table `ActionLog`.
 - Aucune authentification dans le périmètre. L'API n'a ni `AuthModule` ni guard global.
 - Pas de cron ni d'exécution de workflow en arrière-plan. La progression des patients est simulée via un bouton « Simuler l'étape suivante » sur la patient view, qui insère une ligne `ActionLog` cohérente.
+
+---
+
+## Notes de mise en œuvre
+
+Pratique standard plutôt que décision d'architecture : la logique métier non triviale est extraite en modules purs sans dépendance React, colocalisés par feature (`dashboard/lib/derive-patients.ts`, `patient-preview/lib/preview-exec.ts`, `editor/lib/validation.ts`). Les composants `.tsx` se limitent à appeler ces fonctions et à rendre leur résultat. Ce découpage rend la logique testable à plat sous Vitest (sans monter de DOM ni de canvas React Flow), réutilisable entre vues, et explique la coverage web élevée — c'est l'application directe du principe « la présentation appelle, le métier décide », pas un arbitrage structurant qui mériterait un ADR.

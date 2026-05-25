@@ -259,7 +259,7 @@ F-01 ─┬─ F-02 ─ F-03
 - **Infra Vitest extraite en chore séparé** : le setup Vitest (jsdom + testing-library) prévu dans l'acceptance de F-06 a été livré en commit `chore(web): setup Vitest avec jsdom et testing-library` distinct, avant B-00. Bootstrap d'infra ≠ feature → commit dédié.
 - **B-00 inséré** (tokens design canaux/statuts/exec + helpers anti-purge) entre F-07 et la Phase 1 : non prévu au plan initial, ajouté pour figer le design system avant les nodes. PLAN.md amendé a posteriori (`docs(plan): intègre B-00…`).
 - **status-mapper livré en I-04** (et non en lib autonome) : `apps/web/src/lib/status-mapper.ts` (`mapActionStatusToLogStatus`) résout le mismatch `ActionStatusSchema` ↔ états log design flaggé en fin de Phase 0. Cf ADR-006 et README §7.
-- **Extraction de modules métier purs** (non explicitement planifiée) : `derive-patients.ts`, `preview-exec.ts`, `validation.ts` sortis des composants React → testables à plat, à l'origine de la coverage web 98.5%. Formalisé en ADR-007.
+- **Extraction de modules métier purs** (non explicitement planifiée) : `derive-patients.ts`, `preview-exec.ts`, `validation.ts` sortis des composants React → testables à plat, à l'origine de la coverage web 98.5%. Documenté dans ARCHITECTURE.md § « Notes de mise en œuvre » (pratique standard, pas un ADR).
 - **Chores hors tickets** : ajout deps `@xyflow/react` v12 + `dagre`, primitives shadcn `dropdown-menu`/`skeleton`, désactivation `exactOptionalPropertyTypes` (compat shadcn), logos officiels RainPath, ignore du dossier d'analyse design.
 - **Ordre P-01/P-02 inversé** : README §7 (P-02) committé avant le comblage coverage (P-01) — sans impact, dépendances respectées (tous deux dépendent de la Phase 2 complète).
 - **P-04 / P-05** (smoke test manuel, push final) : non matérialisés en commits dédiés (P-04 sans fix à committer, push géré hors ticket).
@@ -267,5 +267,4 @@ F-01 ─┬─ F-02 ─ F-03
 ### Décisions structurantes émergées en cours de sprint
 
 - **ADR-005** — Schemas Zod avec `.default()` : générique `<S extends z.ZodTypeAny>` + dualité Input/Output.
-- **ADR-006** — Détection « bloqué » = « au moins une relance failed » (vs « dernier log failed », inopérant sur les parcours réels).
-- **ADR-007** — Extraction systématique des modules métier purs hors des composants React.
+- **ADR-006** — Règle de classification du statut patient en 4 priorités, basée sur le dernier log (pending → in_progress, plus de canal en aval → completed, dernier log failed → blocked, sinon in_progress).
