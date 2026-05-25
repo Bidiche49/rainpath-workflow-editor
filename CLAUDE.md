@@ -78,8 +78,8 @@ docs/
 
 _Mis à jour à chaque fin de phase du sprint._
 
-- **Phase courante** : Fin de Phase 0 / début Phase 1
-- **Dernier milestone** : F-07 + B-00 livrés. Monorepo opérationnel, schemas Zod canoniques, infra Vitest web, design tokens (channel/status/exec) avec helpers anti-purge.
-- **En cours** : Phase 1 — Track A backend (A-01 CRUD → A-04 tests e2e) et Track B frontend (B-01 hook → B-04 NodeSidePanel) en parallèle.
-- **Prochain blocker** : aucun. Track A et Track B sont indépendants après B-00.
-- **Angle mort** : `ActionStatusSchema` (pending/sent/failed/skipped) est plus pauvre que les états log design (sent/delivered/opened/rejected/scheduled). Mapper à créer en Phase 2 (`apps/web/src/lib/status-mapper.ts`). Documenter dans README §7 « À améliorer ».
+- **Phase courante** : Sprint terminé.
+- **Dernier milestone** : Phase 3 livrée — P-01 (coverage globale ≥ 85% : web 98.5% lignes / 88.7% branches, schemas & api 100%), P-02 (README §7 préparation entretien), P-03 (mise à jour docs finales : CLAUDE.md, ARCHITECTURE.md, PLAN.md).
+- **En cours** : —
+- **Prochain blocker** : aucun.
+- **Angle mort (résolu)** : le mismatch `ActionStatusSchema` (pending/sent/failed/skipped) ↔ états log design (sent/delivered/opened/rejected/scheduled) est résolu via le mapper `apps/web/src/lib/status-mapper.ts` (`mapActionStatusToLogStatus`), livré en I-04 et documenté README §7 « À améliorer » (l'enrichissement granulaire des statuts reste un travail backend futur).

@@ -105,7 +105,7 @@ Chaque ticket porte : ID, titre, temps cible, dépendances, acceptance criteria,
 
 #### A-03 — Seed complet
 - **Temps** : 15 min — **Dépendances** : A-01, A-02
-- **Acceptance** : `pnpm db:seed` crée 3 workflows (dont le scénario exact du brief en preset nommé "Scénario type J+7"), 15 patients fictifs répartis sur ces workflows à différents stades, 20-40 ActionLogs cohérents (limite naturelle du parcours métier : WhatsApp XOR SMS, etc.) (un patient bloqué, un terminé, un en attente, etc.). Idempotent (db:reset wipe + migrate + seed).
+- **Acceptance** : `pnpm db:seed` crée 3 workflows (dont le scénario exact du brief en preset nommé "Scénario type J+7"), 15 patients fictifs répartis sur ces workflows à différents stades, 20-40 ActionLogs cohérents (limite naturelle du parcours métier : WhatsApp XOR SMS, etc.). Le seed inclut au moins un patient bloqué, un terminé et un en attente. Idempotent (db:reset wipe + migrate + seed).
 - **Commit** : `feat(api): seed avec workflows démo, patients fictifs et action logs`
 
 #### A-04 — Tests e2e backend
@@ -236,3 +236,36 @@ F-01 ─┬─ F-02 ─ F-03
                                                       │
                                   Phase 3: P-01 → P-02 → P-03 → P-04 → P-05
 ```
+
+---
+
+## Réalisé
+
+> Durées réelles dérivées des timestamps de commits (wall-clock). La compression
+> vs estimé tient au batching Claude Code, en particulier sur les tracks parallèles.
+
+| Phase | Estimé | Réel (wall-clock) | Écart |
+|---|---|---|---|
+| 0 — Fondation | ~75 min | ~51 min (11:55 → 12:46) | −24 min |
+| 1 — Cœur (parallèle) | ~73 min | ~20 min (12:49 → 13:09) | −53 min |
+| 2 — Intégration | ~92 min | ~45 min (13:13 → 13:58) | −47 min |
+| 3 — Polish | ~55 min | ~30 min (13:58 → fin) | −25 min |
+| **Total** | **~4h55** | **~2h30** | **−2h25** |
+
+**Phase 1 — détail des tracks** : Track A backend 12:49 → 13:05 (16 min, A-01 → A-04), Track B frontend 12:51 → 13:09 (18 min, B-01 → B-04). Wall-clock combiné ~20 min grâce à l'exécution parallèle.
+
+### Écarts notables vs PLAN
+
+- **Infra Vitest extraite en chore séparé** : le setup Vitest (jsdom + testing-library) prévu dans l'acceptance de F-06 a été livré en commit `chore(web): setup Vitest avec jsdom et testing-library` distinct, avant B-00. Bootstrap d'infra ≠ feature → commit dédié.
+- **B-00 inséré** (tokens design canaux/statuts/exec + helpers anti-purge) entre F-07 et la Phase 1 : non prévu au plan initial, ajouté pour figer le design system avant les nodes. PLAN.md amendé a posteriori (`docs(plan): intègre B-00…`).
+- **status-mapper livré en I-04** (et non en lib autonome) : `apps/web/src/lib/status-mapper.ts` (`mapActionStatusToLogStatus`) résout le mismatch `ActionStatusSchema` ↔ états log design flaggé en fin de Phase 0. Cf ADR-006 et README §7.
+- **Extraction de modules métier purs** (non explicitement planifiée) : `derive-patients.ts`, `preview-exec.ts`, `validation.ts` sortis des composants React → testables à plat, à l'origine de la coverage web 98.5%. Formalisé en ADR-007.
+- **Chores hors tickets** : ajout deps `@xyflow/react` v12 + `dagre`, primitives shadcn `dropdown-menu`/`skeleton`, désactivation `exactOptionalPropertyTypes` (compat shadcn), logos officiels RainPath, ignore du dossier d'analyse design.
+- **Ordre P-01/P-02 inversé** : README §7 (P-02) committé avant le comblage coverage (P-01) — sans impact, dépendances respectées (tous deux dépendent de la Phase 2 complète).
+- **P-04 / P-05** (smoke test manuel, push final) : non matérialisés en commits dédiés (P-04 sans fix à committer, push géré hors ticket).
+
+### Décisions structurantes émergées en cours de sprint
+
+- **ADR-005** — Schemas Zod avec `.default()` : générique `<S extends z.ZodTypeAny>` + dualité Input/Output.
+- **ADR-006** — Détection « bloqué » = « au moins une relance failed » (vs « dernier log failed », inopérant sur les parcours réels).
+- **ADR-007** — Extraction systématique des modules métier purs hors des composants React.

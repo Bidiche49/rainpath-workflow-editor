@@ -141,6 +141,99 @@ Chaque action de relance (Email, SMS, WhatsApp, Courrier) peut déclencher en pa
 
 ---
 
+## ADR-005 — Schemas Zod avec `.default()` : générique `<S extends z.ZodTypeAny>` et dualité Input/Output
+
+**Statut** : Accepté
+**Date** : 2026-05-25
+
+### Contexte
+
+Plusieurs champs de nodes portent une valeur par défaut côté schema (`WaitNode.data.delay` via `.default(...)`, `ChannelNodeData.notifySecretariat` default `true`). Zod traite un champ `.default()` comme **optionnel à l'entrée** (`z.input`) mais **garanti à la sortie** (`z.output`). Dériver les types front/back avec `z.infer` (alias de `z.output`) sans distinguer les deux casse deux usages :
+
+- Côté payload entrant (DTO NestJS, formulaire front), le champ doit être **optionnel** — un client peut l'omettre.
+- Côté state parsé (après `.parse()`), le champ est **toujours présent**.
+
+Par ailleurs, factoriser la construction des huit node schemas (start/end/email/sms/whatsapp/letter/wait/condition) appelait une fabrique générique `makeNode(type, data)`.
+
+### Décision
+
+- Fabrique générique `makeNode = <T extends NodeType, D extends z.ZodTypeAny>(type, data)` (`packages/schemas/src/graph.ts`) : un seul point de construction pour tous les nodes, le `data` schema restant paramétrable et fortement typé.
+- Distinguer explicitement `z.input<typeof Schema>` (payloads, champs `.default()` optionnels) de `z.output<typeof Schema>` (state runtime, champs garantis) partout où un schema porte un `.default()`. Ne jamais supposer que `z.infer` couvre les deux côtés.
+
+### Conséquences
+
+- Un seul endroit fait foi pour la forme d'un node ; ajouter un canal = une ligne.
+- Les DTO acceptent des payloads partiels sans casser le typage du state interne.
+- Garde-fou contre un bug subtil : un formulaire typé sur `z.output` exigerait à tort des champs que le schema remplit lui-même.
+
+### Alternatives considérées
+
+- **Tout typer sur `z.infer` (output)** : force le front à fournir des champs censés être defaultés → friction et faux positifs TS.
+- **Huit objets `z.object` dupliqués sans fabrique** : duplication, dérive inévitable entre canaux.
+
+---
+
+## ADR-006 — Détection du statut « bloqué » : « au moins une relance failed »
+
+**Statut** : Accepté
+**Date** : 2026-05-25
+
+### Contexte
+
+Le dashboard classe chaque patient en `en_cours` / `bloque` / `termine` à partir de ses `ActionLog`. Deux règles possibles pour « bloqué » :
+
+1. « Le **dernier** log est `failed` ».
+2. « Le patient a **au moins un** log `failed` ».
+
+La règle 1 paraît plus intuitive, mais le parcours métier réel (et le seed qui le reflète) émet un échec en **première** étape, puis les étapes suivantes réussissent et le dernier log devient un `pending` planifié. Une règle « dernier log failed » ne flaggerait alors jamais personne.
+
+### Décision
+
+Un patient est `bloque` dès qu'**au moins une** de ses relances est `failed` (et qu'il n'a pas atteint un node End). Logique isolée et testée dans `apps/web/src/features/dashboard/lib/derive-patients.ts`.
+
+### Conséquences
+
+- Sémantique métier alignée sur la réalité des parcours : un échec quelque part dans la séquence signale un blocage à traiter, même si une étape ultérieure a suivi.
+- Décision documentée par commentaire en regard du code (rationale conservée près de l'implémentation).
+- Trade-off : un patient « débloqué » manuellement plus tard resterait marqué `bloque` tant qu'on raisonne sur l'historique brut. Hors scope (pas d'action de déblocage dans le périmètre), mais à revoir si un workflow de résolution est ajouté.
+
+### Alternatives considérées
+
+- **« Dernier log failed »** : ne flagge jamais personne sur les parcours réels (échec early, succès tardif) → règle morte.
+
+---
+
+## ADR-007 — Extraction des modules métier purs hors des composants React
+
+**Statut** : Accepté
+**Date** : 2026-05-25
+
+### Contexte
+
+Trois logiques non triviales auraient pu vivre inline dans des composants : dérivation des statuts patients depuis les `ActionLog`, simulation de l'étape suivante (preview), et validation de cohérence du graphe. Inlinées, elles seraient impossibles à tester sans monter un DOM et un canvas React Flow.
+
+### Décision
+
+Extraire systématiquement ces logiques en modules purs, sans dépendance React, colocalisés par feature :
+
+- `apps/web/src/features/dashboard/lib/derive-patients.ts`
+- `apps/web/src/features/patient-preview/lib/preview-exec.ts`
+- `apps/web/src/features/editor/lib/validation.ts`
+
+Les composants se contentent d'appeler ces fonctions et de rendre le résultat.
+
+### Conséquences
+
+- Tests unitaires Vitest à plat, sans `render`, ce qui explique la coverage web élevée (98.5% lignes / 88.7% branches) atteinte en P-01.
+- Logique réutilisable entre vues (ex. dérivation partagée dashboard/patient view).
+- Convention claire : un fichier `lib/` par feature pour le métier pur ; les `.tsx` restent de la présentation.
+
+### Alternatives considérées
+
+- **Logique inline dans les composants** : non testable sans DOM, couplée au rendu, dupliquée entre vues. Refusé.
+
+---
+
 ## Notes transverses
 
 - Aucun envoi réel de message dans le périmètre. La couche d'intégration (`IChannelSender`) est volontairement laissée comme stub testable, persistant les « envois simulés » dans la table `ActionLog`.
