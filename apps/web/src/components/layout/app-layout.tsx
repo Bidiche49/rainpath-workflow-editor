@@ -1,4 +1,3 @@
-import { Activity } from 'lucide-react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 
 import { Toaster } from '@/components/ui/sonner';
@@ -14,9 +13,13 @@ export function AppLayout() {
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
         <div className="flex h-14 items-center gap-6 px-6">
-          <Link to="/" className="flex items-center gap-2 font-semibold">
-            <Activity className="h-5 w-5 text-primary" />
-            <span>RainPath</span>
+          <Link to="/" className="flex items-center">
+            {/* TODO: switch vers logo-rainpath-gradient-blanc.svg en thème dark (cf design system) */}
+            <img
+              src="/brand/logo-rainpath-gradient-rouge.svg"
+              alt="RainPath"
+              className="h-8 w-auto"
+            />
           </Link>
           <nav className="flex items-center gap-1 text-sm">
             {navItems.map((item) => (
