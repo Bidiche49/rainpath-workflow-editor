@@ -1,9 +1,20 @@
-import { ChevronLeft, Settings } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { AlertCircle, AlertTriangle, ChevronLeft, Settings } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { z } from 'zod';
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -18,7 +29,9 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { NodeSidePanel } from '@/features/editor/components/NodeSidePanel';
 import { WorkflowCanvas } from '@/features/editor/components/WorkflowCanvas';
+import { useGraphValidation } from '@/features/editor/hooks/useGraphValidation';
 import { useWorkflowEditor } from '@/features/editor/hooks/useWorkflowEditor';
+import type { GraphValidationResult } from '@/features/editor/lib/validation';
 import { ApiError } from '@/lib/api/client';
 import { notifyApiError } from '@/lib/api/error-toast';
 import { getWorkflow, updateWorkflow } from '@/lib/api/workflows';
@@ -37,6 +50,32 @@ export function WorkflowEditPage() {
   const [workflowName, setWorkflowName] = useState('');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [forceSaveOpen, setForceSaveOpen] = useState(false);
+
+  const validation = useGraphValidation({ nodes: editor.nodes, edges: editor.edges });
+
+  // Inject per-node validation badges into the rendered nodes (presentational
+  // only — never written back to editor state, so save stays clean).
+  const nodesWithValidation = useMemo(
+    () =>
+      editor.nodes.map((node) => {
+        const errors = validation.errorsByNodeId.get(node.id);
+        const warnings = validation.warningsByNodeId.get(node.id);
+        const issues = errors?.length ? errors : warnings;
+        if (!issues?.length) return node;
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            validation: {
+              type: errors?.length ? ('error' as const) : ('warning' as const),
+              message: issues.map((i) => i.message).join('\n'),
+            },
+          },
+        };
+      }),
+    [editor.nodes, validation],
+  );
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -63,16 +102,36 @@ export function WorkflowEditPage() {
     void load();
   }, [load]);
 
-  const handleSave = useCallback(async () => {
-    if (!id || status !== 'ready') return;
+  const persist = useCallback(async () => {
+    if (!id) return;
     try {
       const graph = editor.serialize();
       await updateWorkflow(id, { graph, settings: editor.settings });
-      toast.success('Workflow enregistré');
+      const warningCount = validation.warnings.length;
+      toast.success(
+        warningCount > 0
+          ? `Workflow enregistré (${warningCount} avertissement${warningCount > 1 ? 's' : ''})`
+          : 'Workflow enregistré',
+      );
     } catch (error) {
       notifyApiError(error);
     }
-  }, [id, status, editor]);
+  }, [id, editor, validation.warnings.length]);
+
+  const handleSave = useCallback(() => {
+    if (status !== 'ready') return;
+    // Critical errors require explicit confirmation before saving.
+    if (validation.errors.length > 0) {
+      setForceSaveOpen(true);
+      return;
+    }
+    void persist();
+  }, [status, validation.errors.length, persist]);
+
+  const handleForceSave = useCallback(() => {
+    setForceSaveOpen(false);
+    void persist();
+  }, [persist]);
 
   const deleteSelected = useCallback(() => {
     if (!selectedNodeId) return;
@@ -83,7 +142,7 @@ export function WorkflowEditPage() {
   const deselect = useCallback(() => setSelectedNodeId(null), []);
 
   useKeyboardShortcuts({
-    'mod+s': () => void handleSave(),
+    'mod+s': handleSave,
     Delete: deleteSelected,
     Escape: deselect,
   });
@@ -169,15 +228,17 @@ export function WorkflowEditPage() {
             <Settings className="h-4 w-4" />
             Réglages
           </Button>
-          <Button size="sm" onClick={() => void handleSave()}>
+          <Button size="sm" onClick={handleSave}>
             Enregistrer
           </Button>
         </div>
       </header>
 
+      <ValidationBanner validation={validation} />
+
       <div className="flex flex-1 overflow-hidden">
         <WorkflowCanvas
-          nodes={editor.nodes}
+          nodes={nodesWithValidation}
           edges={editor.edges}
           onNodesChange={editor.onNodesChange}
           onEdgesChange={editor.onEdgesChange}
@@ -205,6 +266,79 @@ export function WorkflowEditPage() {
         initialEmail={editor.settings.notificationEmail}
         onSave={handleSettingsSave}
       />
+
+      <AlertDialog open={forceSaveOpen} onOpenChange={setForceSaveOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {validation.errors.length} erreur
+              {validation.errors.length > 1 ? 's' : ''} critique
+              {validation.errors.length > 1 ? 's' : ''}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Le workflow contient des incohérences qui empêchent une exécution correcte :
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
+            {validation.errors.map((issue) => (
+              <li key={issue.code}>{issue.message}</li>
+            ))}
+          </ul>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                handleForceSave();
+              }}
+            >
+              Forcer la sauvegarde
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+// ── Validation banner ────────────────────────────────────────────────────────
+
+function ValidationBanner({ validation }: { validation: GraphValidationResult }) {
+  if (validation.errors.length === 0 && validation.warnings.length === 0) return null;
+
+  return (
+    <div className="flex-shrink-0 space-y-2 border-b bg-muted/20 px-4 py-3">
+      {validation.errors.length > 0 && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>
+            {validation.errors.length} erreur{validation.errors.length > 1 ? 's' : ''} critique
+            {validation.errors.length > 1 ? 's' : ''}
+          </AlertTitle>
+          <AlertDescription>
+            <ul className="list-inside list-disc">
+              {validation.errors.map((issue) => (
+                <li key={issue.code}>{issue.message}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
+      {validation.warnings.length > 0 && (
+        <Alert className="border-amber-300 text-amber-800 [&>svg]:text-amber-600">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>
+            {validation.warnings.length} avertissement{validation.warnings.length > 1 ? 's' : ''}
+          </AlertTitle>
+          <AlertDescription>
+            <ul className="list-inside list-disc">
+              {validation.warnings.map((issue) => (
+                <li key={issue.code}>{issue.message}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
     </div>
   );
 }

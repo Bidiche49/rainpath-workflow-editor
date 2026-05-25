@@ -15,12 +15,13 @@ import {
 
 import type { ChannelNodeData, NodeStatus } from '@rainpath/schemas';
 
-import { NodeShell, type NotifyIndicator } from './node-shell';
+import { NodeShell, type NodeValidation, type NotifyIndicator } from './node-shell';
 
-/** Common `data` fields every node carries (label + preview status). */
+/** Common `data` fields every node carries (label + preview status + validation). */
 interface BaseData {
   label?: string;
   status?: NodeStatus;
+  validation?: NodeValidation;
 }
 
 // ── Start / End ────────────────────────────────────────────────────────────
@@ -34,6 +35,7 @@ function StartNodeComponent({ data, selected }: NodeProps) {
       label={d.label ?? 'Début'}
       selected={selected}
       status={d.status}
+      validation={d.validation}
       hasTarget={false}
     />
   );
@@ -48,6 +50,7 @@ function EndNodeComponent({ data, selected }: NodeProps) {
       label={d.label ?? 'Fin'}
       selected={selected}
       status={d.status}
+      validation={d.validation}
       hasSource={false}
     />
   );
@@ -75,6 +78,7 @@ function ChannelNode({
   props: NodeProps;
 }) {
   const d = data as ChannelNodeData;
+  const { status, validation } = data as BaseData;
   const notify: NotifyIndicator = {
     enabled: d.notifySecretariat ?? true,
     override: d.notificationEmailOverride,
@@ -85,7 +89,8 @@ function ChannelNode({
       icon={icon}
       label={d.label ?? CHANNEL_LABELS[type]}
       selected={selected}
-      status={d.status}
+      status={status}
+      validation={validation}
       notify={notify}
     />
   );
@@ -120,6 +125,7 @@ function WaitNodeComponent({ data, selected }: NodeProps) {
       label={d.label ?? (summary ? `Attendre ${summary}` : 'Attente')}
       selected={selected}
       status={d.status}
+      validation={d.validation}
     />
   );
 }
@@ -135,6 +141,7 @@ function ConditionNodeComponent({ data, selected }: NodeProps) {
       label={d.label ?? d.condition ?? 'Condition'}
       selected={selected}
       status={d.status}
+      validation={d.validation}
       hasSource={false}
     >
       <Handle id="yes" type="source" position={Position.Bottom} style={{ left: '30%' }} />

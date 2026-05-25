@@ -1,6 +1,5 @@
-import { describe, expect, it } from 'vitest';
-
 import type { WorkflowEdge, WorkflowGraph, WorkflowNode } from '@rainpath/schemas';
+import { describe, expect, it } from 'vitest';
 
 import { validateGraph } from './validation';
 
@@ -30,8 +29,12 @@ function graph(nodes: WorkflowNode[], edges: WorkflowEdge[]): WorkflowGraph {
   return { nodes, edges, viewport: VIEWPORT };
 }
 
-describe('validateGraph', () => {
-  it('reports no error on a valid start → email → end graph', () => {
+function codes(issues: { code: string }[]): string[] {
+  return issues.map((i) => i.code);
+}
+
+describe('validateGraph — valid baseline', () => {
+  it('reports no error and no warning on a clean start → email → end graph', () => {
     const result = validateGraph(
       graph(
         [node('s', 'start'), node('e', 'email'), node('end', 'end')],
@@ -41,74 +44,90 @@ describe('validateGraph', () => {
     expect(result.errors).toEqual([]);
     expect(result.warnings).toEqual([]);
   });
+});
 
+describe('validateGraph — errors', () => {
   it('errors when there is no start node', () => {
     const result = validateGraph(graph([node('end', 'end')], []));
-    expect(result.errors).toContain('Aucun nœud de départ : ajoutez un nœud Start.');
+    expect(codes(result.errors)).toContain('no-start');
   });
 
-  it('errors when there is no end node', () => {
-    const result = validateGraph(graph([node('s', 'start')], []));
-    expect(result.errors).toContain('Aucun nœud de fin : ajoutez un nœud End.');
-  });
-
-  it('errors when no end is reachable from start', () => {
-    const result = validateGraph(
-      graph([node('s', 'start'), node('end', 'end')], []), // disconnected end
-    );
-    expect(result.errors).toContain('Aucune fin atteignable depuis le départ.');
-  });
-
-  it('detects an infinite cycle', () => {
-    const result = validateGraph(
-      graph(
-        [node('s', 'start'), node('a', 'wait'), node('b', 'wait'), node('end', 'end')],
-        [edge('s', 'a'), edge('a', 'b'), edge('b', 'a'), edge('a', 'end')],
-      ),
-    );
-    expect(result.errors).toContain('Cycle détecté : le workflow boucle indéfiniment.');
-  });
-
-  it('warns about multiple start nodes', () => {
+  it('errors when there is more than one start node (and tags both)', () => {
     const result = validateGraph(
       graph(
         [node('s1', 'start'), node('s2', 'start'), node('end', 'end')],
         [edge('s1', 'end'), edge('s2', 'end')],
       ),
     );
-    expect(result.warnings.some((w) => w.includes('nœuds de départ'))).toBe(true);
+    expect(codes(result.errors)).toContain('multiple-starts');
+    expect(result.errorsByNodeId.has('s1')).toBe(true);
+    expect(result.errorsByNodeId.has('s2')).toBe(true);
   });
 
-  it('warns about orphan (unreachable) nodes', () => {
+  it('errors when there is no end node', () => {
+    const result = validateGraph(graph([node('s', 'start')], []));
+    expect(codes(result.errors)).toContain('no-end');
+  });
+
+  it('errors when no end is reachable from start', () => {
+    const result = validateGraph(graph([node('s', 'start'), node('end', 'end')], []));
+    expect(codes(result.errors)).toContain('no-end-reachable');
+  });
+
+  it('reports both missing-start and missing-end on an empty graph', () => {
+    const result = validateGraph(graph([], []));
+    expect(codes(result.errors)).toEqual(expect.arrayContaining(['no-start', 'no-end']));
+  });
+});
+
+describe('validateGraph — warnings', () => {
+  it('warns about orphan (unreachable) nodes and indexes them by id', () => {
     const result = validateGraph(
       graph([node('s', 'start'), node('end', 'end'), node('lost', 'email')], [edge('s', 'end')]),
     );
-    expect(result.warnings.some((w) => w.includes('non atteignable'))).toBe(true);
+    expect(codes(result.warnings)).toContain('orphan');
+    expect(result.warningsByNodeId.has('lost')).toBe(true);
   });
 
-  it('warns about reachable dead-end nodes (no next step)', () => {
+  it('warns about a condition node with a single wired branch', () => {
     const result = validateGraph(
       graph(
-        [node('s', 'start'), node('e', 'email'), node('end', 'end')],
-        [edge('s', 'e'), edge('s', 'end')], // email reachable but goes nowhere
+        [node('s', 'start'), node('c', 'condition'), node('e', 'email'), node('end', 'end')],
+        [edge('s', 'c'), edge('c', 'e', 'yes'), edge('e', 'end')], // only "yes" wired
       ),
     );
-    expect(result.warnings.some((w) => w.includes('sans étape suivante'))).toBe(true);
+    expect(codes(result.warnings)).toContain('condition-single-branch');
+    expect(result.warningsByNodeId.has('c')).toBe(true);
   });
 
+  it('warns about an inescapable cycle (no condition to break out)', () => {
+    const result = validateGraph(
+      graph(
+        [node('s', 'start'), node('a', 'wait'), node('b', 'wait'), node('end', 'end')],
+        [edge('s', 'a'), edge('a', 'b'), edge('b', 'a'), edge('a', 'end')],
+      ),
+    );
+    const cycle = result.warnings.find((w) => w.code === 'infinite-cycle');
+    expect(cycle).toBeDefined();
+    expect(cycle?.nodeIds).toEqual(expect.arrayContaining(['a', 'b']));
+  });
+
+  it('does NOT warn about a cycle that passes through a condition node', () => {
+    const result = validateGraph(
+      graph(
+        [node('s', 'start'), node('c', 'condition'), node('w', 'wait'), node('end', 'end')],
+        [edge('s', 'c'), edge('c', 'w', 'yes'), edge('w', 'c'), edge('c', 'end', 'no')],
+      ),
+    );
+    expect(codes(result.warnings)).not.toContain('infinite-cycle');
+  });
+});
+
+describe('validateGraph — robustness', () => {
   it('ignores edges that dangle to a removed node', () => {
     const result = validateGraph(
-      graph(
-        [node('s', 'start'), node('end', 'end')],
-        [edge('s', 'end'), edge('s', 'ghost')], // ghost no longer exists
-      ),
+      graph([node('s', 'start'), node('end', 'end')], [edge('s', 'end'), edge('s', 'ghost')]),
     );
     expect(result.errors).toEqual([]);
-  });
-
-  it('handles a fully empty graph (no start, no end)', () => {
-    const result = validateGraph(graph([], []));
-    expect(result.errors).toContain('Aucun nœud de départ : ajoutez un nœud Start.');
-    expect(result.errors).toContain('Aucun nœud de fin : ajoutez un nœud End.');
   });
 });

@@ -1,20 +1,55 @@
-import type { WorkflowGraph } from '@rainpath/schemas';
-
 /**
  * Pure graph-coherence checks for the workflow editor.
  *
  * Kept free of React/React Flow so it can be unit-tested in isolation and
- * reused by both the editor (live banner, B-03/I-06) and the API. `errors`
- * block a "clean" save; `warnings` are advisory (save still allowed, ADR-003
- * keeps the editor permissive).
+ * reused by the editor (live banner + per-node badges, I-06). The input is a
+ * structural subset satisfied by both the canonical `WorkflowGraph` and the
+ * live editor state (`useWorkflowEditor`'s React Flow `nodes`/`edges`), so we
+ * never have to Zod-parse on every render to validate.
+ *
+ * `errors` are critical (a clean save is blocked / confirmed); `warnings` are
+ * advisory (save still allowed, ADR-003 keeps the editor permissive).
  */
+
+export type ValidationSeverity = 'error' | 'warning';
+
+export interface ValidationIssue {
+  /** Stable machine code for the rule that fired. */
+  code: string;
+  severity: ValidationSeverity;
+  /** Human-readable, French message shown in the banner / tooltip. */
+  message: string;
+  /** Nodes this issue concerns (empty for graph-global issues). */
+  nodeIds: string[];
+}
+
 export interface GraphValidationResult {
-  errors: string[];
-  warnings: string[];
+  errors: ValidationIssue[];
+  warnings: ValidationIssue[];
+  errorsByNodeId: Map<string, ValidationIssue[]>;
+  warningsByNodeId: Map<string, ValidationIssue[]>;
+}
+
+/** Minimal node shape the rules read (React Flow `Node.type` is optional). */
+export interface ValidatableNode {
+  id: string;
+  type?: string | undefined;
+}
+
+/** Minimal edge shape the rules read. */
+export interface ValidatableEdge {
+  source: string;
+  target: string;
+  sourceHandle?: string | null | undefined;
+}
+
+export interface ValidatableGraph {
+  nodes: ValidatableNode[];
+  edges: ValidatableEdge[];
 }
 
 /** Adjacency list (source id -> target ids) built once from the edge list. */
-function buildAdjacency(graph: WorkflowGraph): Map<string, string[]> {
+function buildAdjacency(graph: ValidatableGraph): Map<string, string[]> {
   const adjacency = new Map<string, string[]>();
   for (const node of graph.nodes) {
     adjacency.set(node.id, []);
@@ -44,46 +79,104 @@ function reachableFrom(roots: string[], adjacency: Map<string, string[]>): Set<s
   return seen;
 }
 
-/** Detects whether the directed graph contains at least one cycle (DFS colors). */
-function hasCycle(graph: WorkflowGraph, adjacency: Map<string, string[]>): boolean {
-  const VISITING = 1;
-  const DONE = 2;
-  const state = new Map<string, number>();
+/**
+ * Tarjan's SCC — returns the set of node ids that belong to a cycle: any
+ * strongly-connected component of size > 1, plus single nodes carrying a
+ * self-loop.
+ */
+function cyclicNodeIds(graph: ValidatableGraph, adjacency: Map<string, string[]>): Set<string> {
+  const index = new Map<string, number>();
+  const lowlink = new Map<string, number>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+  const result = new Set<string>();
+  const selfLooped = new Set(
+    graph.edges.filter((edge) => edge.source === edge.target).map((edge) => edge.source),
+  );
+  let counter = 0;
 
-  const visit = (id: string): boolean => {
-    state.set(id, VISITING);
-    for (const next of adjacency.get(id) ?? []) {
-      const s = state.get(next);
-      if (s === VISITING) return true;
-      if (s === undefined && visit(next)) return true;
+  const strongConnect = (v: string): void => {
+    index.set(v, counter);
+    lowlink.set(v, counter);
+    counter += 1;
+    stack.push(v);
+    onStack.add(v);
+
+    for (const w of adjacency.get(v) ?? []) {
+      if (!index.has(w)) {
+        strongConnect(w);
+        lowlink.set(v, Math.min(lowlink.get(v) ?? 0, lowlink.get(w) ?? 0));
+      } else if (onStack.has(w)) {
+        lowlink.set(v, Math.min(lowlink.get(v) ?? 0, index.get(w) ?? 0));
+      }
     }
-    state.set(id, DONE);
-    return false;
+
+    if ((lowlink.get(v) ?? 0) === (index.get(v) ?? 0)) {
+      const component: string[] = [];
+      let popped: string | undefined;
+      do {
+        popped = stack.pop();
+        if (popped === undefined) break;
+        onStack.delete(popped);
+        component.push(popped);
+      } while (popped !== v);
+
+      if (component.length > 1) {
+        for (const id of component) result.add(id);
+      } else if (component.length === 1) {
+        const only = component[0];
+        if (only !== undefined && selfLooped.has(only)) result.add(only);
+      }
+    }
   };
 
   for (const node of graph.nodes) {
-    if (state.get(node.id) === undefined && visit(node.id)) return true;
+    if (!index.has(node.id)) strongConnect(node.id);
   }
-  return false;
+  return result;
+}
+
+function groupByNodeId(issues: ValidationIssue[]): Map<string, ValidationIssue[]> {
+  const map = new Map<string, ValidationIssue[]>();
+  for (const issue of issues) {
+    for (const id of issue.nodeIds) {
+      const list = map.get(id);
+      if (list) list.push(issue);
+      else map.set(id, [issue]);
+    }
+  }
+  return map;
 }
 
 /**
- * Validates a workflow graph. The rules mirror ADR-003: a workflow must start
- * somewhere, must be able to finish, and must not loop forever.
+ * Validates a workflow graph. Errors: missing/duplicate Start, no reachable
+ * End. Warnings: orphan nodes, condition nodes with a single wired branch,
+ * dead ends, and inescapable cycles (a cycle with no condition node to break
+ * out of it).
  */
-export function validateGraph(graph: WorkflowGraph): GraphValidationResult {
-  const errors: string[] = [];
-  const warnings: string[] = [];
+export function validateGraph(graph: ValidatableGraph): GraphValidationResult {
+  const issues: ValidationIssue[] = [];
 
   const starts = graph.nodes.filter((n) => n.type === 'start');
   const ends = graph.nodes.filter((n) => n.type === 'end');
+  const conditions = graph.nodes.filter((n) => n.type === 'condition');
   const adjacency = buildAdjacency(graph);
 
+  // ── Errors ─────────────────────────────────────────────────────────────────
   if (starts.length === 0) {
-    errors.push('Aucun nœud de départ : ajoutez un nœud Start.');
-  }
-  if (starts.length > 1) {
-    warnings.push(`${starts.length} nœuds de départ : un seul est recommandé.`);
+    issues.push({
+      code: 'no-start',
+      severity: 'error',
+      message: 'Aucun nœud de départ : ajoutez un nœud Début.',
+      nodeIds: [],
+    });
+  } else if (starts.length > 1) {
+    issues.push({
+      code: 'multiple-starts',
+      severity: 'error',
+      message: `${starts.length} nœuds de départ : un seul est autorisé.`,
+      nodeIds: starts.map((s) => s.id),
+    });
   }
 
   const reachable = reachableFrom(
@@ -92,21 +185,45 @@ export function validateGraph(graph: WorkflowGraph): GraphValidationResult {
   );
 
   if (ends.length === 0) {
-    errors.push('Aucun nœud de fin : ajoutez un nœud End.');
+    issues.push({
+      code: 'no-end',
+      severity: 'error',
+      message: 'Aucun nœud de fin : ajoutez un nœud Fin.',
+      nodeIds: [],
+    });
   } else if (starts.length > 0 && !ends.some((e) => reachable.has(e.id))) {
-    errors.push('Aucune fin atteignable depuis le départ.');
+    issues.push({
+      code: 'no-end-reachable',
+      severity: 'error',
+      message: 'Aucune fin atteignable depuis le départ.',
+      nodeIds: [],
+    });
   }
 
-  if (hasCycle(graph, adjacency)) {
-    errors.push('Cycle détecté : le workflow boucle indéfiniment.');
-  }
-
-  // Orphans: nodes unreachable from any start (the start nodes themselves are
-  // always "reachable" as roots, so they are never flagged).
+  // ── Warnings ────────────────────────────────────────────────────────────────
   if (starts.length > 0) {
     const orphans = graph.nodes.filter((n) => !reachable.has(n.id));
     if (orphans.length > 0) {
-      warnings.push(`${orphans.length} nœud(s) non atteignable(s) depuis le départ.`);
+      issues.push({
+        code: 'orphan',
+        severity: 'warning',
+        message: `${orphans.length} nœud(s) non atteignable(s) depuis le départ.`,
+        nodeIds: orphans.map((n) => n.id),
+      });
+    }
+  }
+
+  for (const condition of conditions) {
+    const handles = new Set(
+      graph.edges.filter((e) => e.source === condition.id).map((e) => e.sourceHandle ?? ''),
+    );
+    if (!handles.has('yes') || !handles.has('no')) {
+      issues.push({
+        code: 'condition-single-branch',
+        severity: 'warning',
+        message: 'Nœud condition : une seule branche (Oui/Non) est reliée.',
+        nodeIds: [condition.id],
+      });
     }
   }
 
@@ -115,8 +232,35 @@ export function validateGraph(graph: WorkflowGraph): GraphValidationResult {
     (n) => n.type !== 'end' && reachable.has(n.id) && (adjacency.get(n.id) ?? []).length === 0,
   );
   if (deadEnds.length > 0) {
-    warnings.push(`${deadEnds.length} nœud(s) sans étape suivante.`);
+    issues.push({
+      code: 'dead-end',
+      severity: 'warning',
+      message: `${deadEnds.length} nœud(s) sans étape suivante.`,
+      nodeIds: deadEnds.map((n) => n.id),
+    });
   }
 
-  return { errors, warnings };
+  // Inescapable cycle: a cycle with no condition node to break out of it.
+  const cyclic = cyclicNodeIds(graph, adjacency);
+  if (cyclic.size > 0) {
+    const hasEscape = [...cyclic].some((id) => conditions.some((condition) => condition.id === id));
+    if (!hasEscape) {
+      issues.push({
+        code: 'infinite-cycle',
+        severity: 'warning',
+        message: 'Cycle sans condition de sortie : le workflow peut boucler indéfiniment.',
+        nodeIds: [...cyclic],
+      });
+    }
+  }
+
+  const errors = issues.filter((i) => i.severity === 'error');
+  const warnings = issues.filter((i) => i.severity === 'warning');
+
+  return {
+    errors,
+    warnings,
+    errorsByNodeId: groupByNodeId(errors),
+    warningsByNodeId: groupByNodeId(warnings),
+  };
 }

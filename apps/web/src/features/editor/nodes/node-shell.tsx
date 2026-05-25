@@ -1,7 +1,7 @@
 import { memo, type ReactNode } from 'react';
 
 import { Handle, Position } from '@xyflow/react';
-import { AlertTriangle, Bell, type LucideIcon } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Bell, type LucideIcon } from 'lucide-react';
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { getChannelStyles, getExecRingStyles, type ExecState } from '@/lib/design-tokens';
@@ -34,7 +34,11 @@ export interface NotifyIndicator {
   override?: string | undefined;
 }
 
-/** Bell / AlertTriangle overlay shown on action nodes (ADR-004). */
+/**
+ * Bell / AlertTriangle overlay shown on action nodes (ADR-004). Positioned on
+ * the channel pastille's corner (top-left of the card) so it never collides
+ * with the validation badge, which owns the card's top-right corner (I-06).
+ */
 function NotifBadge({ enabled, override }: NotifyIndicator) {
   if (override) {
     return (
@@ -43,9 +47,9 @@ function NotifBadge({ enabled, override }: NotifyIndicator) {
           <TooltipTrigger asChild>
             <span
               data-testid="notif-override"
-              className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full border border-orange-200 bg-white shadow-sm"
+              className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-orange-200 bg-white shadow-sm"
             >
-              <AlertTriangle size={11} className="text-orange-500" />
+              <AlertTriangle size={10} className="text-orange-500" />
             </span>
           </TooltipTrigger>
           <TooltipContent>Notification vers une adresse personnalisée : {override}</TooltipContent>
@@ -60,9 +64,9 @@ function NotifBadge({ enabled, override }: NotifyIndicator) {
           <TooltipTrigger asChild>
             <span
               data-testid="notif-default"
-              className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white shadow-sm"
+              className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-slate-200 bg-white shadow-sm"
             >
-              <Bell size={10} className="text-slate-400" />
+              <Bell size={9} className="text-slate-400" />
             </span>
           </TooltipTrigger>
           <TooltipContent>Le secrétariat est notifié à chaque déclenchement</TooltipContent>
@@ -71,6 +75,36 @@ function NotifBadge({ enabled, override }: NotifyIndicator) {
     );
   }
   return null;
+}
+
+/** Per-node coherence indicator (I-06): error (red) or warning (amber). */
+export interface NodeValidation {
+  type: 'error' | 'warning';
+  message: string;
+}
+
+/** AlertCircle / AlertTriangle badge on the card's top-right corner. */
+function ValidationBadge({ type, message }: NodeValidation) {
+  const isError = type === 'error';
+  const Icon = isError ? AlertCircle : AlertTriangle;
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            data-testid={`validation-${type}`}
+            className={cn(
+              'absolute -right-2 -top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full border bg-white shadow-sm',
+              isError ? 'border-red-200 text-red-600' : 'border-amber-200 text-amber-600',
+            )}
+          >
+            <Icon size={12} />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-[240px] whitespace-pre-line">{message}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 export interface NodeShellProps {
@@ -85,6 +119,8 @@ export interface NodeShellProps {
   hasSource?: boolean;
   /** Notification indicators (action nodes only). */
   notify?: NotifyIndicator | undefined;
+  /** Graph-coherence indicator (I-06 live validation). */
+  validation?: NodeValidation | undefined;
   /** Extra handles rendered by the node itself (Condition's yes/no branches). */
   children?: ReactNode;
 }
@@ -103,6 +139,7 @@ function NodeShellComponent({
   hasTarget = true,
   hasSource = true,
   notify,
+  validation,
   children,
 }: NodeShellProps) {
   const styles = getChannelStyles(type);
@@ -121,8 +158,9 @@ function NodeShellComponent({
       {hasTarget && <Handle type="target" position={Position.Top} />}
 
       <div className="flex items-center gap-2.5">
-        <span className={cn('rounded-lg p-2 text-white', styles.chip)}>
+        <span className={cn('relative rounded-lg p-2 text-white', styles.chip)}>
           <Icon size={16} />
+          {notify && <NotifBadge {...notify} />}
         </span>
         <span className={cn('text-[13px] font-medium', styles.text)}>{label}</span>
       </div>
@@ -134,7 +172,7 @@ function NodeShellComponent({
         />
       )}
 
-      {notify && <NotifBadge {...notify} />}
+      {validation && <ValidationBadge {...validation} />}
 
       {hasSource && <Handle type="source" position={Position.Bottom} />}
 
