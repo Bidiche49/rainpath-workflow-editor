@@ -56,15 +56,26 @@
       "json",
       "ts"
     ],
-    "rootDir": "src",
-    "testRegex": ".*\\.spec\\.ts$",
+    "rootDir": ".",
+    "roots": [
+      "<rootDir>/src",
+      "<rootDir>/test"
+    ],
+    "testRegex": ".*\\.(spec|e2e-spec)\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "collectCoverageFrom": [
-      "**/*.(t|j)s"
+      "src/**/*.ts",
+      "!src/main.ts",
+      "!src/**/*.spec.ts"
     ],
-    "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "coverageDirectory": "<rootDir>/coverage",
+    "testEnvironment": "node",
+    "maxWorkers": 1,
+    "setupFiles": [
+      "<rootDir>/test/setup-env.ts"
+    ],
+    "globalSetup": "<rootDir>/test/global-setup.ts"
   }
 }
