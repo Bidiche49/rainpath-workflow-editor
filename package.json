@@ -1,0 +1,19 @@
+{
+  "name": "rainpath-workflow-editor",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Éditeur visuel de workflows de relance patient pour laboratoires d'anatomopathologie",
+  "packageManager": "pnpm@10.28.1",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "echo \"[placeholder] dev — wired in F-07\"",
+    "build": "echo \"[placeholder] build — wired in F-07\"",
+    "test": "echo \"[placeholder] test — wired in F-07\"",
+    "typecheck": "echo \"[placeholder] typecheck — wired in F-07\"",
+    "lint": "echo \"[placeholder] lint — wired in F-02\"",
+    "db:reset": "echo \"[placeholder] db:reset — wired in F-05\"",
+    "db:seed": "echo \"[placeholder] db:seed — wired in F-05\""
+  }
+}
