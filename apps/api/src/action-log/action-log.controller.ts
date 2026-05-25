@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import type { ActionLog } from '@rainpath/schemas';
 
 import { ActionLogService } from './action-log.service';
-import { CreateActionLogDto } from './dto';
+import { CreateActionLogDto, UpdateActionLogDto } from './dto';
 
 @Controller('action-logs')
 export class ActionLogController {
@@ -16,5 +16,10 @@ export class ActionLogController {
   @Post()
   create(@Body() dto: CreateActionLogDto): Promise<ActionLog> {
     return this.actionLogs.create(dto);
+  }
+
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateActionLogDto): Promise<ActionLog> {
+    return this.actionLogs.update(id, dto);
   }
 }

@@ -1,4 +1,4 @@
-import type { ActionLog, ActionStatus, ChannelNodeType, Workflow } from '@rainpath/schemas';
+import type { ActionLog, Workflow } from '@rainpath/schemas';
 import type { NodeChange } from '@xyflow/react';
 import { Activity, ChevronLeft, Lock } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -20,7 +20,7 @@ import {
   computeNodeStatuses,
 } from '@/features/patient-preview/lib/preview-exec';
 import { ApiError } from '@/lib/api/client';
-import { createActionLog, listActionLogs } from '@/lib/api/action-logs';
+import { createActionLog, listActionLogs, updateActionLog } from '@/lib/api/action-logs';
 import { notifyApiError } from '@/lib/api/error-toast';
 import { getWorkflow } from '@/lib/api/workflows';
 import { getStatusBadgeStyles, type LogStatus } from '@/lib/design-tokens';
@@ -38,27 +38,6 @@ const LOG_STATUS_LABEL: Record<LogStatus, string> = {
   rejected: 'Échec',
   scheduled: 'Planifié',
 };
-
-/** Weighted pool for the simulated next action (mostly successful sends). */
-const STATUS_POOL: readonly ActionStatus[] = ['sent', 'sent', 'sent', 'failed', 'skipped'];
-
-function randomStatus(): ActionStatus {
-  return STATUS_POOL[Math.floor(Math.random() * STATUS_POOL.length)] ?? 'sent';
-}
-
-function simulatedMessage(channel: ChannelNodeType, status: ActionStatus): string {
-  const label = NODE_META.get(channel)?.label ?? channel;
-  switch (status) {
-    case 'sent':
-      return `${label} envoyé`;
-    case 'failed':
-      return `${label} en échec`;
-    case 'skipped':
-      return `${label} ignoré`;
-    case 'pending':
-      return `${label} planifié`;
-  }
-}
 
 const noop = () => {};
 
@@ -222,18 +201,32 @@ export function WorkflowPreviewPage() {
     const step = computeNextStep(workflow.graph, frontierNodeId);
     if (step.kind !== 'channel') return;
 
-    const actionStatus = randomStatus();
+    const label = NODE_META.get(step.channel)?.label ?? step.channel;
+    const message = `Relance ${label} envoyée à ${patientDisplayName(patientId)}`;
+    // Firing the step always succeeds — this is a deliberate "advance the
+    // patient" action, not a random outcome. If the step was already scheduled
+    // (a pending log), consume that very log (Planifié → Envoyé) instead of
+    // stacking a duplicate; the elapsed wait is implied by the send happening.
+    const scheduled = logs.find((l) => l.status === 'pending' && l.nodeId === step.node.id);
     setSimulating(true);
     try {
-      await createActionLog({
-        patientId,
-        workflowId: workflow.id,
-        nodeId: step.node.id,
-        channel: step.channel,
-        status: actionStatus,
-        message: simulatedMessage(step.channel, actionStatus),
-        occurredAt: new Date(),
-      });
+      if (scheduled) {
+        await updateActionLog(scheduled.id, {
+          status: 'sent',
+          message,
+          occurredAt: new Date(),
+        });
+      } else {
+        await createActionLog({
+          patientId,
+          workflowId: workflow.id,
+          nodeId: step.node.id,
+          channel: step.channel,
+          status: 'sent',
+          message,
+          occurredAt: new Date(),
+        });
+      }
       toast.success('Étape simulée');
       await refetchLogs();
     } catch (error) {
@@ -241,7 +234,7 @@ export function WorkflowPreviewPage() {
     } finally {
       setSimulating(false);
     }
-  }, [workflow, patientId, frontierNodeId, refetchLogs]);
+  }, [workflow, patientId, frontierNodeId, logs, refetchLogs]);
 
   if (!patientId) {
     return (

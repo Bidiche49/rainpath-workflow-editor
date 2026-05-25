@@ -92,6 +92,47 @@ describe('ActionLog (e2e)', () => {
     });
   });
 
+  describe('PATCH /action-logs/:id', () => {
+    it('fires a scheduled log in place (pending → sent), no duplicate', async () => {
+      const created = await request(server())
+        .post('/action-logs')
+        .send({ ...logPayload('p1'), status: 'pending', message: 'Email planifié' })
+        .expect(201);
+
+      const occurredAt = '2026-05-25T10:00:00.000Z';
+      const patched = await request(server())
+        .patch(`/action-logs/${created.body.id}`)
+        .send({ status: 'sent', message: 'Email envoyé', occurredAt })
+        .expect(200);
+
+      expect(patched.body).toMatchObject({
+        id: created.body.id,
+        status: 'sent',
+        message: 'Email envoyé',
+      });
+      expect(patched.body.occurredAt).toBe(occurredAt);
+
+      const all = await request(server()).get('/action-logs?patientId=p1').expect(200);
+      expect(all.body).toHaveLength(1);
+      expect(all.body[0].status).toBe('sent');
+    });
+
+    it('returns 404 when patching a missing log', async () => {
+      await request(server()).patch('/action-logs/nope').send({ status: 'sent' }).expect(404);
+    });
+
+    it('rejects an invalid status with a structured 400', async () => {
+      const created = await request(server())
+        .post('/action-logs')
+        .send(logPayload('p1'))
+        .expect(201);
+      await request(server())
+        .patch(`/action-logs/${created.body.id}`)
+        .send({ status: 'bogus' })
+        .expect(400);
+    });
+  });
+
   describe('GET /action-logs', () => {
     it('filters by patientId and stays coherent with what POST stored', async () => {
       const created = await request(server())

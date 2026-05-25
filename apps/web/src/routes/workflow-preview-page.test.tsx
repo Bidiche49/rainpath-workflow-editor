@@ -10,6 +10,7 @@ const navigate = vi.fn();
 const getWorkflow = vi.fn();
 const listActionLogs = vi.fn();
 const createActionLog = vi.fn();
+const updateActionLog = vi.fn();
 const toastSuccess = vi.fn();
 const notifyApiError = vi.fn();
 
@@ -29,6 +30,7 @@ vi.mock('@/lib/api/workflows', () => ({ getWorkflow: (...a: unknown[]) => getWor
 vi.mock('@/lib/api/action-logs', () => ({
   listActionLogs: (...a: unknown[]) => listActionLogs(...a),
   createActionLog: (...a: unknown[]) => createActionLog(...a),
+  updateActionLog: (...a: unknown[]) => updateActionLog(...a),
 }));
 vi.mock('@/lib/api/error-toast', () => ({ notifyApiError: (e: unknown) => notifyApiError(e) }));
 vi.mock('sonner', () => ({ toast: { success: (m: string) => toastSuccess(m) } }));
@@ -81,6 +83,7 @@ beforeEach(() => {
   getWorkflow.mockResolvedValue(workflow);
   listActionLogs.mockResolvedValue([]);
   createActionLog.mockResolvedValue(log());
+  updateActionLog.mockResolvedValue(log());
 });
 
 afterEach(() => {
@@ -136,9 +139,27 @@ describe('WorkflowPreviewPage', () => {
       nodeId: 'email',
       channel: 'email',
     });
+    // A success is recorded, never a random failure.
+    expect(createActionLog.mock.calls[0]?.[0]).toMatchObject({ status: 'sent' });
+    expect(updateActionLog).not.toHaveBeenCalled();
     expect(toastSuccess).toHaveBeenCalledWith('Étape simulée');
     // Logs are refetched after a successful simulation.
     await waitFor(() => expect(listActionLogs).toHaveBeenCalledTimes(2));
+  });
+
+  it('fires a scheduled (pending) step in place instead of stacking a duplicate', async () => {
+    // The next channel (email) is already scheduled → simulating consumes that
+    // very log (Planifié → Envoyé), it does not create a second one.
+    const pending = log({ id: 'log_pending', status: 'pending', message: 'Email planifié' });
+    listActionLogs.mockResolvedValue([pending]);
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Simuler l'étape suivante/i }));
+
+    await waitFor(() => expect(updateActionLog).toHaveBeenCalledTimes(1));
+    expect(updateActionLog.mock.calls[0]?.[0]).toBe('log_pending');
+    expect(updateActionLog.mock.calls[0]?.[1]).toMatchObject({ status: 'sent' });
+    expect(createActionLog).not.toHaveBeenCalled();
   });
 
   it('disables the simulate button once the patient reached the End node', async () => {

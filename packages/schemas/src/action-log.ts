@@ -32,6 +32,14 @@ export const CreateActionLogSchema = ActionLogSchema.omit({ id: true }).partial(
 });
 export type CreateActionLogInput = z.infer<typeof CreateActionLogSchema>;
 
+/**
+ * Payload accepted when patching a log — every field optional. Used when a
+ * scheduled (`pending`) action fires: its `status`, `message` and `occurredAt`
+ * transition in place instead of creating a duplicate log.
+ */
+export const UpdateActionLogSchema = CreateActionLogSchema.partial();
+export type UpdateActionLogInput = z.infer<typeof UpdateActionLogSchema>;
+
 /** Aggregate progression status of a patient through a workflow. */
 export const PatientStatusSchema = z.enum(['pending', 'in_progress', 'blocked', 'completed']);
 export type PatientStatus = z.infer<typeof PatientStatusSchema>;

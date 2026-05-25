@@ -1,4 +1,9 @@
-import { ActionLogSchema, type ActionLog, type CreateActionLogInput } from '@rainpath/schemas';
+import {
+  ActionLogSchema,
+  type ActionLog,
+  type CreateActionLogInput,
+  type UpdateActionLogInput,
+} from '@rainpath/schemas';
 import { z } from 'zod';
 
 import { apiFetch } from './client';
@@ -19,6 +24,15 @@ export function createActionLog(payload: CreateActionLogInput): Promise<ActionLo
   return apiFetch(
     '/action-logs',
     { method: 'POST', body: JSON.stringify(payload) },
+    ActionLogSchema,
+  );
+}
+
+/** Patch a log in place — e.g. firing a scheduled (pending) action to sent. */
+export function updateActionLog(id: string, patch: UpdateActionLogInput): Promise<ActionLog> {
+  return apiFetch(
+    `/action-logs/${id}`,
+    { method: 'PATCH', body: JSON.stringify(patch) },
     ActionLogSchema,
   );
 }
