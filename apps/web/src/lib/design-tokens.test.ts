@@ -10,6 +10,7 @@ describe('getChannelStyles', () => {
       bg: 'bg-channel-email-50',
       text: 'text-channel-email-700',
       ring: 'ring-channel-email-500',
+      chip: 'bg-channel-email-500',
     });
   });
 
@@ -27,6 +28,7 @@ describe('getChannelStyles', () => {
     for (const type of types) {
       const styles = getChannelStyles(type);
       expect(styles.bg).toBe(`bg-channel-${type}-50`);
+      expect(styles.chip).toBe(`bg-channel-${type}-500`);
       // no leftover template syntax leaked into the class strings
       expect(styles.text).not.toContain('${');
     }
