@@ -17,6 +17,16 @@ vi.mock('react-router-dom', async (orig) => ({
   useNavigate: () => navigate,
   useParams: () => ({ id: 'wf_1' }),
 }));
+// jsdom drop events carry no clientX/clientY, so React Flow's
+// screenToFlowPosition would yield an undefined (un-serializable) position.
+// Stub it to a fixed finite point so a dropped node is valid and saveable.
+vi.mock('@xyflow/react', async (orig) => {
+  const actual = await orig<typeof import('@xyflow/react')>();
+  return {
+    ...actual,
+    useReactFlow: () => ({ screenToFlowPosition: () => ({ x: 100, y: 100 }) }),
+  };
+});
 vi.mock('@/lib/api/workflows', () => ({
   getWorkflow: (...a: unknown[]) => getWorkflow(...a),
   updateWorkflow: (...a: unknown[]) => updateWorkflow(...a),
@@ -80,15 +90,30 @@ describe('WorkflowEditPage', () => {
     expect(await screen.findByRole('button', { name: 'Enregistrer' })).toBeInTheDocument();
   });
 
-  it('saves a clean workflow directly (no confirmation dialog)', async () => {
+  it('disables the Save button until the editor is dirty', async () => {
     renderPage();
-    fireEvent.click(await screen.findByRole('button', { name: 'Enregistrer' }));
+    expect(await screen.findByRole('button', { name: 'Enregistrer' })).toBeDisabled();
+  });
+
+  it('saves directly (no force dialog) once dirty without critical errors', async () => {
+    renderPage();
+    await screen.findByRole('button', { name: 'Enregistrer' });
+
+    // Dirty the editor by dropping a node — a disconnected node is only a
+    // warning (orphan), never a blocking error, so no force-save dialog appears.
+    fireEvent.drop(screen.getByTestId('canvas-dropzone'), {
+      clientX: 120,
+      clientY: 80,
+      dataTransfer: { getData: () => 'email' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enregistrer' }));
 
     await waitFor(() => expect(updateWorkflow).toHaveBeenCalledTimes(1));
     expect(updateWorkflow.mock.calls[0]?.[1]).toMatchObject({
       settings: { notificationEmail: 'secretariat@labo.fr' },
     });
-    expect(toastSuccess).toHaveBeenCalledWith('Workflow enregistré');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
   it('requires explicit confirmation to save a graph with critical errors', async () => {

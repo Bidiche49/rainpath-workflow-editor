@@ -1,6 +1,6 @@
 import { AlertCircle, AlertTriangle, ChevronLeft, Settings } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { UNSAFE_DataRouterContext, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { z } from 'zod';
 
@@ -28,6 +28,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { NodeSidePanel } from '@/features/editor/components/NodeSidePanel';
+import { SaveButton } from '@/features/editor/components/SaveButton';
+import { UnsavedChangesGuard } from '@/features/editor/components/UnsavedChangesGuard';
 import { WorkflowCanvas } from '@/features/editor/components/WorkflowCanvas';
 import { useGraphValidation } from '@/features/editor/hooks/useGraphValidation';
 import { useWorkflowEditor } from '@/features/editor/hooks/useWorkflowEditor';
@@ -35,6 +37,7 @@ import type { GraphValidationResult } from '@/features/editor/lib/validation';
 import { ApiError } from '@/lib/api/client';
 import { notifyApiError } from '@/lib/api/error-toast';
 import { getWorkflow, updateWorkflow } from '@/lib/api/workflows';
+import { useBeforeUnload } from '@/lib/hooks/useBeforeUnload';
 import { useKeyboardShortcuts } from '@/lib/hooks/useKeyboardShortcuts';
 
 type LoadStatus = 'loading' | 'ready' | 'notfound' | 'error';
@@ -51,6 +54,33 @@ export function WorkflowEditPage() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [forceSaveOpen, setForceSaveOpen] = useState(false);
+
+  // Dirty tracking (I-07): compare a normalized snapshot of the persisted state
+  // (graph + settings) against the last saved baseline. `serialize()` strips
+  // React Flow's transient fields (selected, dragging, measured…), so selecting
+  // or dragging a node alone never marks the editor dirty — only real edits do.
+  const [baseline, setBaseline] = useState<string | null>(null);
+  const snapshot = useMemo<string | null>(() => {
+    try {
+      return JSON.stringify({ graph: editor.serialize(), settings: editor.settings });
+    } catch {
+      // An in-progress, schema-invalid graph can make serialize() throw; treat
+      // that as "unknown" rather than crashing the editor.
+      return null;
+    }
+    // `editor` methods are stable; recompute only when the underlying state moves.
+  }, [editor.nodes, editor.edges, editor.viewport, editor.settings]);
+
+  // Capture the freshly-loaded state as the clean baseline, exactly once.
+  useEffect(() => {
+    if (status === 'ready' && baseline === null && snapshot !== null) setBaseline(snapshot);
+  }, [status, baseline, snapshot]);
+
+  const isDirty = baseline !== null && snapshot !== null && snapshot !== baseline;
+
+  // Block both browser-close (here) and in-app navigation (UnsavedChangesGuard).
+  useBeforeUnload(isDirty);
+  const dataRouter = useContext(UNSAFE_DataRouterContext);
 
   const validation = useGraphValidation({ nodes: editor.nodes, edges: editor.edges });
 
@@ -80,6 +110,7 @@ export function WorkflowEditPage() {
   const load = useCallback(async () => {
     if (!id) return;
     setStatus('loading');
+    setBaseline(null);
     try {
       const workflow = await getWorkflow(id);
       editor.init(workflow);
@@ -102,19 +133,23 @@ export function WorkflowEditPage() {
     void load();
   }, [load]);
 
-  const persist = useCallback(async () => {
-    if (!id) return;
+  const persist = useCallback(async (): Promise<boolean> => {
+    if (!id) return false;
     try {
       const graph = editor.serialize();
       await updateWorkflow(id, { graph, settings: editor.settings });
+      // Rebaseline to exactly what we persisted → the editor is clean again.
+      setBaseline(JSON.stringify({ graph, settings: editor.settings }));
       const warningCount = validation.warnings.length;
       toast.success(
         warningCount > 0
           ? `Workflow enregistré (${warningCount} avertissement${warningCount > 1 ? 's' : ''})`
           : 'Workflow enregistré',
       );
+      return true;
     } catch (error) {
       notifyApiError(error);
+      return false;
     }
   }, [id, editor, validation.warnings.length]);
 
@@ -171,6 +206,11 @@ export function WorkflowEditPage() {
       setSettingsOpen(false);
       try {
         await updateWorkflow(id, { settings: { notificationEmail: email } });
+        // Settings are now persisted; fold them into the baseline (the graph is
+        // unchanged) so this quick-save doesn't leave the editor looking dirty.
+        setBaseline(
+          JSON.stringify({ graph: editor.serialize(), settings: { notificationEmail: email } }),
+        );
         toast.success('Réglages enregistrés');
       } catch (error) {
         notifyApiError(error);
@@ -228,9 +268,12 @@ export function WorkflowEditPage() {
             <Settings className="h-4 w-4" />
             Réglages
           </Button>
-          <Button size="sm" onClick={handleSave}>
-            Enregistrer
-          </Button>
+          <SaveButton
+            isDirty={isDirty}
+            errorCount={validation.errors.length}
+            warningCount={validation.warnings.length}
+            onClick={handleSave}
+          />
         </div>
       </header>
 
@@ -297,6 +340,10 @@ export function WorkflowEditPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* In-app navigation guard. `useBlocker` needs a data router, so mount it
+          only when one is present (no-op under a plain router, e.g. in tests). */}
+      {dataRouter && <UnsavedChangesGuard isDirty={isDirty} onSave={persist} />}
     </div>
   );
 }
