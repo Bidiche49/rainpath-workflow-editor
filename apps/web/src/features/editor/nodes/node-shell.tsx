@@ -197,12 +197,16 @@ export function StyledHandle({
   style,
 }: StyledHandleProps) {
   const connected = useHandleConnected(nodeId, handleType, id);
+  // In read-only preview the handles are shown for context but must not start a
+  // connection drag — only the editor can wire nodes together.
+  const { readOnly } = useNodeActions();
   const posTranslate = position === Position.Top ? '-translate-y-1/2' : 'translate-y-1/2';
   return (
     <Handle
       type={handleType}
       position={position}
       id={id}
+      isConnectable={!readOnly}
       style={style}
       className={cn(
         'h-4 w-4 -translate-x-1/2 rounded-full border-2 transition-transform duration-150 hover:scale-125',

@@ -120,7 +120,10 @@ function CanvasArea({
           onEdgeDoubleClick={readOnly ? undefined : (_, edge) => onRemoveEdge?.(edge.id)}
           onPaneClick={onPaneClick}
           onMoveEnd={(_, viewport) => onViewportChange?.(viewport)}
-          nodesDraggable={!readOnly}
+          // Nodes stay draggable even in read-only preview: re-arranging them
+          // aids readability (the new positions are never persisted). Connecting
+          // and selecting remain disabled in preview.
+          nodesDraggable
           nodesConnectable={!readOnly}
           elementsSelectable={!readOnly}
           fitView

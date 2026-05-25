@@ -1,4 +1,5 @@
 import type { ActionLog, ActionStatus, ChannelNodeType, Workflow } from '@rainpath/schemas';
+import type { NodeChange } from '@xyflow/react';
 import { Activity, ChevronLeft, Lock } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -147,6 +148,35 @@ export function WorkflowPreviewPage() {
     }) as AppNode[];
   }, [workflow, logsAsc, activeNodeIds]);
 
+  // Read-only canvas stays draggable for readability: positions the user drags
+  // to are kept in this ephemeral overlay (never persisted) and merged on top of
+  // the computed presentation, so status/dimming updates don't reset them.
+  const [draggedPositions, setDraggedPositions] = useState<
+    Record<string, { x: number; y: number }>
+  >({});
+
+  const nodes = useMemo<AppNode[]>(
+    () =>
+      previewNodes.map((node) => {
+        const pos = draggedPositions[node.id];
+        return pos ? { ...node, position: pos } : node;
+      }),
+    [previewNodes, draggedPositions],
+  );
+
+  const onNodesChange = useCallback((changes: NodeChange<AppNode>[]) => {
+    setDraggedPositions((current) => {
+      let next = current;
+      for (const change of changes) {
+        if (change.type === 'position' && change.position) {
+          if (next === current) next = { ...current };
+          next[change.id] = change.position;
+        }
+      }
+      return next;
+    });
+  }, []);
+
   // Dim every edge the patient did not traverse, more strongly than the nodes.
   const previewEdges = useMemo<AppEdge[]>(() => {
     if (!workflow) return [];
@@ -238,9 +268,9 @@ export function WorkflowPreviewPage() {
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1">
           <WorkflowCanvas
-            nodes={previewNodes}
+            nodes={nodes}
             edges={previewEdges}
-            onNodesChange={noop}
+            onNodesChange={onNodesChange}
             onEdgesChange={noop}
             onConnect={noop}
             onAddNode={noop}
