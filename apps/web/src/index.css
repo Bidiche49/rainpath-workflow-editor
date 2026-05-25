@@ -24,6 +24,10 @@
     --input: 214.3 31.8% 91.4%;
     --ring: 222.2 84% 4.9%;
     --radius: 0.5rem;
+
+    /* Warm app canvas background (B-00). Distinct from shadcn --background,
+       which stays white for cards/popovers/inputs. */
+    --app-bg: #f0eee9;
   }
 
   .dark {
@@ -54,6 +58,7 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
+    background: var(--app-bg);
   }
 }
