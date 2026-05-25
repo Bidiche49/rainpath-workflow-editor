@@ -1,0 +1,13 @@
+type(scope): titre français au présent, sans point final
+
+EN: short english summary explaining what this commit does and why,
+wrapped at ~72 chars per line. Keep it to 1-3 lines.
+
+# Types autorisés : feat | fix | refactor | chore | test | docs | style | perf
+# Scopes : repo | api | web | schemas | editor | dashboard | patient-view | docs
+#
+# Exemples :
+#   feat(editor): drag-from-sidebar pour créer des nodes
+#   fix(api): validation Zod manquante sur PATCH workflow
+#   chore(repo): config husky + lint-staged
+#   test(schemas): couverture des migrations v1→v2

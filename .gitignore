@@ -1,0 +1,74 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Lockfiles for other managers (we use pnpm)
+package-lock.json
+yarn.lock
+bun.lockb
+
+# Build / dist
+dist/
+build/
+.next/
+.turbo/
+.vite/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+
+# Env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Bases SQLite locales
+*.db
+*.db-journal
+*.sqlite
+*.sqlite-journal
+apps/api/prisma/*.db
+apps/api/prisma/migrations/dev/
+
+# Tests & coverage
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+*.lcov
+
+# OS
+.DS_Store
+Thumbs.db
+._*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Historique / caches d'agents IA
+.claude/
+.claude-sessions/
+.cursor/
+
+# Caches divers
+.cache/
+.eslintcache
+.parcel-cache/
+
+# Temporaires
+tmp/
+*.tmp
+
+# Brief client (privé — NE JAMAIS commiter)
+mini_projet_technique.md
