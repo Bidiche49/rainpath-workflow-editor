@@ -60,7 +60,7 @@ export function computeNodeStatuses(logsAsc: ActionLog[]): Map<string, NodeStatu
 
 export type NextStep =
   | { kind: 'channel'; node: WorkflowNode; channel: ChannelNodeType }
-  | { kind: 'end' }
+  | { kind: 'end'; node: WorkflowNode }
   | { kind: 'none' };
 
 /**
@@ -85,7 +85,7 @@ export function computeNextStep(graph: WorkflowGraph, currentNodeId: string | nu
 
     const outgoing = graph.edges.filter((edge) => edge.source === cursor);
     if (outgoing.length === 0) {
-      return node.type === 'end' ? { kind: 'end' } : { kind: 'none' };
+      return node.type === 'end' ? { kind: 'end', node } : { kind: 'none' };
     }
 
     let edge = outgoing[0];
@@ -101,7 +101,7 @@ export function computeNextStep(graph: WorkflowGraph, currentNodeId: string | nu
     if (isChannelType(target.type)) {
       return { kind: 'channel', node: target, channel: target.type };
     }
-    if (target.type === 'end') return { kind: 'end' };
+    if (target.type === 'end') return { kind: 'end', node: target };
 
     cursor = target.id;
   }

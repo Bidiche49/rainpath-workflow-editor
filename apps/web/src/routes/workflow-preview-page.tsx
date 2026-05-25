@@ -127,10 +127,21 @@ export function WorkflowPreviewPage() {
     [logsAsc, startNodeId],
   );
 
-  // Edges the patient actually traversed (future paths + dead branches excluded).
+  const nextStep = useMemo(
+    () => (workflow ? computeNextStep(workflow.graph, frontierNodeId) : { kind: 'none' as const }),
+    [workflow, frontierNodeId],
+  );
+
+  // The reached End node once the journey is over — drives the "done" highlight
+  // on the End node and lights the final edge into it (the End is never logged).
+  const reachedEndId = nextStep.kind === 'end' ? nextStep.node.id : null;
+
+  // Edges the patient actually traversed (future paths + dead branches excluded);
+  // extended to the reached End so its incoming edge lights up on completion.
   const activeEdgeIds = useMemo(
-    () => (workflow ? computeActiveEdges(workflow.graph, logsAsc) : new Set<string>()),
-    [workflow, logsAsc],
+    () =>
+      workflow ? computeActiveEdges(workflow.graph, logsAsc, reachedEndId) : new Set<string>(),
+    [workflow, logsAsc, reachedEndId],
   );
 
   // Nodes on the traversed route: every endpoint of an active edge, plus the
@@ -154,11 +165,20 @@ export function WorkflowPreviewPage() {
   const previewNodes = useMemo<AppNode[]>(() => {
     if (!workflow) return [];
     const statuses = computeNodeStatuses(logsAsc);
+    // Workflow complete: nothing is "in progress" anymore, so promote the
+    // current node to done and mark the reached End node done as well — that
+    // green End is the visual "c'est fini" signal.
+    if (reachedEndId) {
+      for (const [nodeId, nodeStatus] of statuses) {
+        if (nodeStatus === 'current') statuses.set(nodeId, 'done');
+      }
+      statuses.set(reachedEndId, 'done');
+    }
     return workflow.graph.nodes.map((node) => {
       const next = { ...node, data: { ...node.data, status: statuses.get(node.id) } };
       return activeNodeIds.has(node.id) ? next : { ...next, style: { opacity: 0.5 } };
     }) as AppNode[];
-  }, [workflow, logsAsc, activeNodeIds]);
+  }, [workflow, logsAsc, activeNodeIds, reachedEndId]);
 
   // Read-only canvas stays draggable for readability: positions the user drags
   // to are kept in this ephemeral overlay (never persisted) and merged on top of
@@ -196,11 +216,6 @@ export function WorkflowPreviewPage() {
       activeEdgeIds.has(edge.id) ? edge : { ...edge, style: { opacity: 0.25 } },
     );
   }, [workflow, activeEdgeIds]);
-
-  const nextStep = useMemo(
-    () => (workflow ? computeNextStep(workflow.graph, frontierNodeId) : { kind: 'none' as const }),
-    [workflow, frontierNodeId],
-  );
 
   const handleSimulate = useCallback(async () => {
     if (!workflow || !patientId) return;

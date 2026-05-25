@@ -90,4 +90,21 @@ describe('computeActiveEdges', () => {
     expect(active).toEqual(new Set(['e1', 'e2', 'e4']));
     expect(active.has('e3')).toBe(false);
   });
+
+  it('lights the final edge into the reached End when a terminal node is given', () => {
+    const graph: WorkflowGraph = {
+      nodes: [node('start', 'start'), node('E', 'email'), node('S', 'sms'), node('end', 'end')],
+      edges: [
+        { id: 'e1', source: 'start', target: 'E' },
+        { id: 'e2', source: 'E', target: 'S' },
+        { id: 'e3', source: 'S', target: 'end' },
+      ],
+      viewport,
+    };
+    const logs = [log('E', 'email', 1), log('S', 'sms', 2)];
+    // Without a terminal node, the S → end edge stays inactive.
+    expect(computeActiveEdges(graph, logs).has('e3')).toBe(false);
+    // Passing the reached End node lights it up.
+    expect(computeActiveEdges(graph, logs, 'end')).toEqual(new Set(['e1', 'e2', 'e3']));
+  });
 });

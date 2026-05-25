@@ -57,8 +57,16 @@ function shortestPathEdges(adjacency: Map<string, OutEdge[]>, from: string, to: 
  *
  * The read-only preview dims every edge *not* in this set, so the patient's
  * real route stands out while future paths and dead branches fade.
+ *
+ * `terminalNodeId` (optional) is appended to the patient's path — pass the
+ * reached End node once the workflow is complete, so the final edge into it
+ * lights up too (the End is never logged, having no channel).
  */
-export function computeActiveEdges(graph: WorkflowGraph, actionLogs: ActionLog[]): Set<string> {
+export function computeActiveEdges(
+  graph: WorkflowGraph,
+  actionLogs: ActionLog[],
+  terminalNodeId?: string | null,
+): Set<string> {
   const active = new Set<string>();
 
   const logsAsc = [...actionLogs].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
@@ -70,6 +78,10 @@ export function computeActiveEdges(graph: WorkflowGraph, actionLogs: ActionLog[]
   for (const log of logsAsc) {
     // Collapse consecutive logs that sit on the same node (no edge between them).
     if (sequence[sequence.length - 1] !== log.nodeId) sequence.push(log.nodeId);
+  }
+  // Extend the path to the reached terminal node (e.g. End) when provided.
+  if (terminalNodeId && sequence[sequence.length - 1] !== terminalNodeId) {
+    sequence.push(terminalNodeId);
   }
 
   // Adjacency list, built once.

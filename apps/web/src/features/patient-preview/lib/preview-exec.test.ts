@@ -94,8 +94,11 @@ describe('computeNextStep', () => {
     });
   });
 
-  it('returns end when the next reachable node is an End node', () => {
-    expect(computeNextStep(graph, 'sms')).toEqual({ kind: 'end' });
+  it('returns end (with the reached End node) when the next node is an End', () => {
+    expect(computeNextStep(graph, 'sms')).toEqual({
+      kind: 'end',
+      node: expect.objectContaining({ id: 'end' }),
+    });
   });
 
   it('returns none when there is no current node', () => {
@@ -159,7 +162,10 @@ describe('computeNextStep', () => {
       edges: [],
       viewport: { x: 0, y: 0, zoom: 1 },
     };
-    expect(computeNextStep(g, 'end')).toEqual({ kind: 'end' });
+    expect(computeNextStep(g, 'end')).toEqual({
+      kind: 'end',
+      node: expect.objectContaining({ id: 'end' }),
+    });
   });
 
   it('returns none when the current node id is absent from the graph', () => {
