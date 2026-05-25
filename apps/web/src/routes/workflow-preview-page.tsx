@@ -127,27 +127,25 @@ export function WorkflowPreviewPage() {
     [workflow, nextNodeId],
   );
 
-  // Per-node status, relative to the cursor along the taken route: nodes before
-  // the cursor are done, the cursor is current (the End shows done), a scheduled
-  // node ahead shows pending; nodes off the route are dimmed.
+  // Per-node status & dimming, relative to the cursor: only the nodes already
+  // reached (cursor and everything before it on the route) are shown at full
+  // opacity — done before the cursor, current on it (End shows done). Every
+  // node *after* the current one — future route steps and off-route branches
+  // alike — is dimmed until the patient actually reaches it.
   const previewNodes = useMemo<AppNode[]>(() => {
     if (!workflow) return [];
     const indexOnPath = new Map(takenPath.map((nodeId, i) => [nodeId, i]));
-    const pendingNodeIds = new Set(
-      logsAsc.filter((log) => log.status === 'pending').map((log) => log.nodeId),
-    );
     return workflow.graph.nodes.map((node) => {
       const idx = indexOnPath.get(node.id);
+      const reached = idx !== undefined && cursorIndex >= 0 && idx <= cursorIndex;
       let nodeStatus: NodeStatus | undefined;
-      if (idx !== undefined && cursorIndex >= 0) {
-        if (idx < cursorIndex) nodeStatus = 'done';
-        else if (idx === cursorIndex) nodeStatus = node.type === 'end' ? 'done' : 'current';
-        else if (pendingNodeIds.has(node.id)) nodeStatus = 'pending';
+      if (reached) {
+        nodeStatus = idx < cursorIndex ? 'done' : node.type === 'end' ? 'done' : 'current';
       }
       const next = { ...node, data: { ...node.data, status: nodeStatus } };
-      return idx !== undefined ? next : { ...next, style: { opacity: 0.5 } };
+      return reached ? next : { ...next, style: { opacity: 0.5 } };
     }) as AppNode[];
-  }, [workflow, takenPath, cursorIndex, logsAsc]);
+  }, [workflow, takenPath, cursorIndex]);
 
   // Read-only canvas stays draggable for readability: positions the user drags
   // to are kept in this ephemeral overlay (never persisted) and merged on top of
@@ -178,11 +176,12 @@ export function WorkflowPreviewPage() {
     });
   }, []);
 
-  // Edges between consecutive nodes of the taken route are active; the rest dim.
+  // Only the edges already traversed (those linking nodes reached before the
+  // cursor) stay solid; edges leaving the current node and everything ahead dim.
   const previewEdges = useMemo<AppEdge[]>(() => {
     if (!workflow) return [];
     const activeEdgeIds = new Set<string>();
-    for (let i = 0; i < takenPath.length - 1; i += 1) {
+    for (let i = 0; i < cursorIndex; i += 1) {
       const edge = workflow.graph.edges.find(
         (e) => e.source === takenPath[i] && e.target === takenPath[i + 1],
       );
@@ -191,7 +190,7 @@ export function WorkflowPreviewPage() {
     return workflow.graph.edges.map((edge) =>
       activeEdgeIds.has(edge.id) ? edge : { ...edge, style: { opacity: 0.25 } },
     );
-  }, [workflow, takenPath]);
+  }, [workflow, takenPath, cursorIndex]);
 
   const handleSimulate = useCallback(async () => {
     if (!workflow || !patientId || !nextNode) return;
