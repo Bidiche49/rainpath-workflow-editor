@@ -1,0 +1,10 @@
+node_modules
+dist
+build
+coverage
+pnpm-lock.yaml
+*.md
+apps/api/prisma/migrations
+apps/web/src/components/ui
+.claude
+.claude-sessions

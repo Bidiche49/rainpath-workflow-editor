@@ -12,8 +12,20 @@
     "build": "echo \"[placeholder] build — wired in F-07\"",
     "test": "echo \"[placeholder] test — wired in F-07\"",
     "typecheck": "echo \"[placeholder] typecheck — wired in F-07\"",
-    "lint": "echo \"[placeholder] lint — wired in F-02\"",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "db:reset": "echo \"[placeholder] db:reset — wired in F-05\"",
     "db:seed": "echo \"[placeholder] db:seed — wired in F-05\""
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/node": "^20.19.41",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^9.1.2",
+    "globals": "^15.15.0",
+    "prettier": "^3.8.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.4"
   }
 }
