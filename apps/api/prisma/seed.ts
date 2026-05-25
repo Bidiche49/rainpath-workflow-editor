@@ -1,6 +1,6 @@
-import { fakerFR as faker } from '@faker-js/faker';
 import { Prisma, PrismaClient } from '@prisma/client';
 import {
+  CHANNEL_NODE_TYPES,
   WorkflowGraphSchema,
   WorkflowSettingsSchema,
   type ActionStatus,
@@ -10,9 +10,6 @@ import {
 } from '@rainpath/schemas';
 
 const prisma = new PrismaClient();
-
-/** Deterministic-ish output across runs without being byte-identical. */
-faker.seed(42);
 
 const NOTIFICATION_EMAIL = 'secretariat@labo-anapath.fr';
 const settings: WorkflowSettings = WorkflowSettingsSchema.parse({
@@ -246,25 +243,21 @@ function buildWhatsAppExpressGraph(): WorkflowGraph {
   });
 }
 
-interface Patient {
-  id: string;
-  fullName: string;
-}
+// ---------------------------------------------------------------------------
+// Curated demo roster — deterministic, named patients (no faker).
+//
+// Patient identity lives in the id (`pat_<first>.<last>_<wf>`): the dashboard
+// rebuilds the display name from it, so the surname encodes the archetype
+// ("Termine", "Bloque", "Demarrer"…) and the presenter knows exactly who to
+// click. Every date is computed relative to "now" at seed time, so the demo is
+// always coherent: `pending` logs land in the FUTURE (a scheduled action that
+// has not happened yet), every other status lands in the PAST.
+// ---------------------------------------------------------------------------
 
-/** Readable, stable-ish patient id (no Patient table exists — id carries identity). */
-function makePatient(): Patient {
-  const firstName = faker.person.firstName();
-  const lastName = faker.person.lastName();
-  const slug = `${firstName}.${lastName}`
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z]+/g, '.');
-  return {
-    id: `pat_${slug}_${faker.string.alphanumeric(4)}`,
-    fullName: `${firstName} ${lastName}`,
-  };
-}
+const DAY_MS = 24 * 60 * 60 * 1000;
+const NOW = Date.now();
+const ago = (days: number): Date => new Date(NOW - days * DAY_MS);
+const ahead = (days: number): Date => new Date(NOW + days * DAY_MS);
 
 /**
  * French channel labels for log messages — mirrors the editor's node catalog
@@ -277,200 +270,262 @@ const CHANNEL_LABELS: Record<ChannelNodeType, string> = {
   letter: 'courrier',
 };
 
-/** A step a patient can walk through, mapping a graph channel node to a channel. */
-interface JourneyStep {
-  nodeId: string;
-  channel: ChannelNodeType;
-}
+const lbl = (channel: ChannelNodeType): string => CHANNEL_LABELS[channel];
 
-const J7_JOURNEY: JourneyStep[] = [
-  { nodeId: 'email', channel: 'email' },
-  { nodeId: 'whatsapp', channel: 'whatsapp' },
-  { nodeId: 'letter', channel: 'letter' },
-];
-const SMS_FIRST_JOURNEY: JourneyStep[] = [
-  { nodeId: 'sms', channel: 'sms' },
-  { nodeId: 'email', channel: 'email' },
-  { nodeId: 'letter', channel: 'letter' },
-];
-const WHATSAPP_JOURNEY: JourneyStep[] = [
-  { nodeId: 'whatsapp', channel: 'whatsapp' },
-  { nodeId: 'email', channel: 'email' },
-];
-
-interface LogDraft {
+interface RawLog {
   nodeId: string;
   channel: ChannelNodeType;
   status: ActionStatus;
+  occurredAt: Date;
   message: string;
+  /** Whether the secretariat was notified (only meaningful for sent/failed). */
   notify: boolean;
 }
 
+/** An already-sent relance (past). */
+const sent = (name: string, nodeId: string, channel: ChannelNodeType, days: number): RawLog => ({
+  nodeId,
+  channel,
+  status: 'sent',
+  occurredAt: ago(days),
+  message: `Relance ${lbl(channel)} envoyée à ${name}`,
+  notify: true,
+});
+
+/** A failed relance (past) — drives the "Bloqués" card and the red badge. */
+const failed = (
+  name: string,
+  nodeId: string,
+  channel: ChannelNodeType,
+  days: number,
+  reason: string,
+): RawLog => ({
+  nodeId,
+  channel,
+  status: 'failed',
+  occurredAt: ago(days),
+  message: `Relance ${lbl(channel)} en échec pour ${name} (${reason})`,
+  notify: true,
+});
+
+/** A skipped step (past) — a branch the patient was not eligible for. */
+const skipped = (
+  name: string,
+  nodeId: string,
+  channel: ChannelNodeType,
+  days: number,
+  reason: string,
+): RawLog => ({
+  nodeId,
+  channel,
+  status: 'skipped',
+  occurredAt: ago(days),
+  message: `Relance ${lbl(channel)} ignorée pour ${name} (${reason})`,
+  notify: false,
+});
+
+/** A scheduled relance (FUTURE) — the next action "Simuler" will consume. */
+const planned = (name: string, nodeId: string, channel: ChannelNodeType, days: number): RawLog => ({
+  nodeId,
+  channel,
+  status: 'pending',
+  occurredAt: ahead(days),
+  message: `Relance ${lbl(channel)} planifiée pour ${name}`,
+  notify: false,
+});
+
+interface SeedPatient {
+  id: string;
+  name: string;
+  logs: RawLog[];
+}
+
+/** Build a patient; `build` receives the display name so messages stay in sync. */
+function patient(id: string, name: string, build: (name: string) => RawLog[]): SeedPatient {
+  return { id, name, logs: build(name) };
+}
+
+// --- Workflow J+7 (conditions Oui/Non) -------------------------------------
+// 7 patients. The two in-progress branch patients (Sophie / Karim) take
+// DIFFERENT condition forks (WhatsApp = Oui, SMS = Non) yet both sit on a
+// post-condition frontier, so "Simuler" is fully deterministic for them.
+const j7Patients: SeedPatient[] = [
+  // #1 Terminé — branche "Non" (email accepté, pas de rejet) : email + courrier,
+  // tout vert, aucun échec. Le parcours le plus simple à présenter.
+  patient('pat_julie.termine_j7', 'Julie Termine', (n) => [
+    sent(n, 'email', 'email', 20),
+    sent(n, 'letter', 'letter', 13),
+  ]),
+  // #1bis Terminé avec repli — 1er canal en échec (email rejeté) puis repli
+  // WhatsApp réussi, courrier final. Illustre "le 1er failed puis repli sent".
+  patient('pat_hugo.termine_j7', 'Hugo Termine', (n) => [
+    failed(n, 'email', 'email', 24, 'adresse e-mail rejetée'),
+    sent(n, 'whatsapp', 'whatsapp', 17),
+    sent(n, 'letter', 'letter', 10),
+  ]),
+  // #2 Bloqué — email rejeté puis WhatsApp ignoré (aucun numéro) : aucune
+  // relance planifiée, parcours figé → carte "Bloqués", badge rouge.
+  patient('pat_marc.bloque_j7', 'Marc Bloque', (n) => [
+    failed(n, 'email', 'email', 4, 'adresse e-mail rejetée'),
+    skipped(n, 'whatsapp', 'whatsapp', 2, 'aucun numéro WhatsApp'),
+  ]),
+  // #3 En cours → simulable jusqu'à la FIN en 1 clic — branche Oui/Oui (WhatsApp).
+  // Frontier = whatsapp (post-condition) → "Simuler" consomme le courrier
+  // planifié puis atteint la Fin verte, sans fork aléatoire.
+  patient('pat_sophie.whatsapp_j7', 'Sophie Whatsapp', (n) => [
+    failed(n, 'email', 'email', 10, 'adresse e-mail rejetée'),
+    sent(n, 'whatsapp', 'whatsapp', 3),
+    planned(n, 'letter', 'letter', 1),
+  ]),
+  // #3bis En cours → simulable jusqu'à la FIN — branche Oui/Non (SMS).
+  // Même mécanique que Sophie mais via SMS : démontre la route alternative et
+  // la branche WhatsApp morte (grisée).
+  patient('pat_karim.sms_j7', 'Karim Sms', (n) => [
+    failed(n, 'email', 'email', 11, 'adresse e-mail rejetée'),
+    sent(n, 'sms', 'sms', 5),
+    planned(n, 'letter', 'letter', 2),
+  ]),
+  // #4 En cours → début de parcours — email rejeté, WhatsApp planifié. Sert la
+  // démo VISUELLE (position courante sur la condition, futur grisé, branche SMS
+  // morte). Frontier pré-condition : ne pas cliquer "Simuler" (fork aléatoire).
+  patient('pat_lea.debut_j7', 'Lea Debut', (n) => [
+    failed(n, 'email', 'email', 2, 'adresse e-mail rejetée'),
+    planned(n, 'whatsapp', 'whatsapp', 3),
+  ]),
+  // #5 À démarrer — seul le 1er canal (email) est planifié : tout grisé, départ.
+  patient('pat_paul.demarrer_j7', 'Paul Demarrer', (n) => [planned(n, 'email', 'email', 1)]),
+];
+
+// --- Workflow SMS-first (linéaire, AUCUNE condition) ------------------------
+// 6 patients. Sans condition, toute simulation est déterministe : c'est ici que
+// se fait la démo "simuler plusieurs étapes d'affilée" (Noah).
+const smsFirstPatients: SeedPatient[] = [
+  // #1 Terminé — SMS, email, courrier tous envoyés, tout vert.
+  patient('pat_agnes.termine_sms', 'Agnes Termine', (n) => [
+    sent(n, 'sms', 'sms', 18),
+    sent(n, 'email', 'email', 14),
+    sent(n, 'letter', 'letter', 10),
+  ]),
+  // #1bis Terminé avec 1er canal en échec — SMS échoué, email puis courrier
+  // aboutissent quand même. Journey linéaire → termine malgré l'échec initial.
+  patient('pat_lucas.termine_sms', 'Lucas Termine', (n) => [
+    failed(n, 'sms', 'sms', 21, 'numéro injoignable'),
+    sent(n, 'email', 'email', 16),
+    sent(n, 'letter', 'letter', 11),
+  ]),
+  // #2 Bloqué — SMS envoyé, email en échec, rien de planifié → carte "Bloqués".
+  patient('pat_bruno.bloque_sms', 'Bruno Bloque', (n) => [
+    sent(n, 'sms', 'sms', 6),
+    failed(n, 'email', 'email', 3, 'adresse e-mail rejetée'),
+  ]),
+  // #3 En cours → simulable jusqu'à la FIN en 1 clic — SMS + email envoyés,
+  // courrier planifié. "Simuler" consomme le courrier puis atteint la Fin verte.
+  patient('pat_diane.finit_sms', 'Diane Finit', (n) => [
+    sent(n, 'sms', 'sms', 5),
+    sent(n, 'email', 'email', 1),
+    planned(n, 'letter', 'letter', 2),
+  ]),
+  // #4 En cours → début de parcours — SMS envoyé, email planifié. Comme la
+  // journey est sans condition, "Simuler" enchaîne email → courrier → Fin de
+  // façon 100% déterministe : la démo "plusieurs étapes" se fait ici.
+  patient('pat_noah.debut_sms', 'Noah Debut', (n) => [
+    sent(n, 'sms', 'sms', 1),
+    planned(n, 'email', 'email', 1),
+  ]),
+  // #5 À démarrer — seul le SMS est planifié : tout grisé, départ.
+  patient('pat_emma.demarrer_sms', 'Emma Demarrer', (n) => [planned(n, 'sms', 'sms', 1)]),
+];
+
+// --- Workflow WhatsApp express (2 canaux, 1 condition après WhatsApp) -------
+// 5 patients. Seuls 2 canaux (WhatsApp, email) → #3 et #4 fusionnent.
+const whatsappPatients: SeedPatient[] = [
+  // #1 Terminé — WhatsApp puis email de secours envoyés (branche "Oui, sans
+  // réponse"). Après l'email il ne reste que la Fin → terminé.
+  patient('pat_chloe.termine_wa', 'Chloe Termine', (n) => [
+    sent(n, 'whatsapp', 'whatsapp', 12),
+    sent(n, 'email', 'email', 8),
+  ]),
+  // #1bis Terminé avec repli — WhatsApp non distribué puis email réussi.
+  patient('pat_eva.termine_wa', 'Eva Termine', (n) => [
+    failed(n, 'whatsapp', 'whatsapp', 15, 'message non distribué'),
+    sent(n, 'email', 'email', 9),
+  ]),
+  // #2 Bloqué — WhatsApp en échec, rien de planifié → carte "Bloqués".
+  patient('pat_sami.bloque_wa', 'Sami Bloque', (n) => [
+    failed(n, 'whatsapp', 'whatsapp', 4, 'message non distribué'),
+  ]),
+  // #3 En cours → simulable — WhatsApp envoyé, email de secours planifié.
+  // La condition "sans réponse ?" forke : "Oui" → un clic consomme l'email et
+  // atteint la Fin ; "Non" → le clic est sans effet (patient réputé avoir
+  // répondu), recliquer suffit. (Voir script de démo.)
+  patient('pat_ines.finit_wa', 'Ines Finit', (n) => [
+    sent(n, 'whatsapp', 'whatsapp', 2),
+    planned(n, 'email', 'email', 2),
+  ]),
+  // #5 À démarrer — seul le WhatsApp est planifié : tout grisé, départ.
+  patient('pat_tom.demarrer_wa', 'Tom Demarrer', (n) => [planned(n, 'whatsapp', 'whatsapp', 1)]),
+];
+
 type ActionLogCreate = Prisma.ActionLogCreateManyInput;
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-/** Age bucket for a journey, measured as the age of its first (oldest) step. */
-type StoryAge = 'recent' | 'mid' | 'older';
-
-/**
- * Pick how old an in-progress journey looks, so the dashboard surfaces patients
- * at different stages instead of a uniform block ~20-28 days ago:
- * ~30% recent, ~40% mid-course, ~30% older.
- */
-function pickStoryAge(): StoryAge {
-  return faker.helpers.weightedArrayElement<StoryAge>([
-    { weight: 30, value: 'recent' },
-    { weight: 40, value: 'mid' },
-    { weight: 30, value: 'older' },
-  ]);
+/** Flatten a roster into ActionLog rows for a given workflow. */
+function toCreates(patients: SeedPatient[], workflowId: string): ActionLogCreate[] {
+  return patients.flatMap((pt) =>
+    pt.logs.map((log) => {
+      const recordsSend = log.status === 'sent' || log.status === 'failed';
+      return {
+        patientId: pt.id,
+        workflowId,
+        nodeId: log.nodeId,
+        channel: log.channel,
+        status: log.status,
+        message: log.message,
+        ...(log.notify && recordsSend ? { notifiedTo: NOTIFICATION_EMAIL } : {}),
+        occurredAt: log.occurredAt,
+      };
+    }),
+  );
 }
 
-/** Age (in days ago) of the FIRST/oldest step for a given bucket. */
-function startAgeForBucket(age: StoryAge): number {
-  switch (age) {
-    case 'recent':
-      return faker.number.int({ min: 1, max: 5 });
-    case 'mid':
-      return faker.number.int({ min: 5, max: 12 });
-    case 'older':
-      return faker.number.int({ min: 15, max: 25 });
+// ---------------------------------------------------------------------------
+// Validation helpers — replicate the dashboard's status derivation
+// (apps/web/.../derive-patients.ts) so the seed self-checks that every workflow
+// surfaces ≥ 1 terminé / ≥ 1 bloqué / ≥ 1 en cours.
+// ---------------------------------------------------------------------------
+
+const CHANNEL_TYPES = new Set<string>(CHANNEL_NODE_TYPES);
+
+/** True when a channel node is still reachable downstream of `fromNodeId`. */
+function hasDownstreamChannel(graph: WorkflowGraph, fromNodeId: string): boolean {
+  const typeById = new Map(graph.nodes.map((node) => [node.id, node.type]));
+  const targets = new Map<string, string[]>();
+  for (const edge of graph.edges) {
+    const list = targets.get(edge.source);
+    if (list) list.push(edge.target);
+    else targets.set(edge.source, [edge.target]);
   }
-}
-
-/**
- * Ages (in days ago) for `count` past steps, oldest first (largest age).
- * Walks forward from `startAge` towards now, spacing steps by 1-5 days. The gap
- * is clamped so every step stays in the past (≥ 0.5 day) and strictly ordered —
- * for short/recent journeys the spacing compresses rather than spilling into the
- * future, which keeps `sent`/`failed`/`skipped` logs coherently in the past.
- */
-function pastStepAges(count: number, startAge: number): number[] {
-  if (count <= 0) return [];
-  const ages = [startAge];
-  let current = startAge;
-  for (let i = 1; i < count; i++) {
-    const remaining = count - i;
-    const maxGap = Math.max(0.5, (current - 0.5) / remaining);
-    const gap = Math.min(faker.number.int({ min: 1, max: 5 }), maxGap);
-    current = Math.max(0.5, current - gap);
-    ages.push(current);
+  const seen = new Set<string>();
+  const queue = [...(targets.get(fromNodeId) ?? [])];
+  while (queue.length > 0) {
+    const id = queue.shift();
+    if (id === undefined || seen.has(id)) continue;
+    seen.add(id);
+    if (CHANNEL_TYPES.has(typeById.get(id) ?? '')) return true;
+    queue.push(...(targets.get(id) ?? []));
   }
-  return ages;
+  return false;
 }
 
-/**
- * Date spreading for a patient story, encoding the convention **pending = futur**.
- *
- * An ActionLog with status `pending` is "planifié / à venir", so its
- * `occurredAt` is placed in the FUTURE (1-7 days after now, cumulative when
- * several are scheduled). Logs that already happened (`sent` | `failed` |
- * `skipped`) are placed in the PAST, oldest first, chronologically ordered and
- * spaced ~1-5 days apart (see `pastStepAges`). Returns one Date per draft, in
- * the same order as the input.
- */
-function spreadDatesForStory(drafts: LogDraft[], startAge: number): Date[] {
-  const now = Date.now();
-  const pastCount = drafts.filter((draft) => draft.status !== 'pending').length;
-  const pastAges = pastStepAges(pastCount, startAge);
+type UiStatus = 'en_cours' | 'bloque' | 'termine';
 
-  const dates: Date[] = [];
-  let pastIndex = 0;
-  let daysAhead = 0;
-  for (const draft of drafts) {
-    if (draft.status === 'pending') {
-      daysAhead += faker.number.int({ min: 1, max: 7 });
-      dates.push(new Date(now + daysAhead * DAY_MS));
-    } else {
-      const age = pastAges[pastIndex++] ?? 0.5;
-      dates.push(new Date(now - age * DAY_MS));
-    }
-  }
-  return dates;
-}
-
-function draftToCreate(
-  patient: Patient,
-  workflowId: string,
-  draft: LogDraft,
-  occurredAt: Date,
-): ActionLogCreate {
-  const recordsSend = draft.status === 'sent' || draft.status === 'failed';
-  return {
-    patientId: patient.id,
-    workflowId,
-    nodeId: draft.nodeId,
-    channel: draft.channel,
-    status: draft.status,
-    message: draft.message,
-    ...(draft.notify && recordsSend ? { notifiedTo: NOTIFICATION_EMAIL } : {}),
-    occurredAt,
-  };
-}
-
-/**
- * Build a coherent in-progress story: the patient has gone through `done`
- * channel steps (all `sent`, the first occasionally `failed`), and the next
- * step in the journey is `pending` (scheduled). Always yields ≥ 2 logs.
- */
-function inProgressStory(patient: Patient, journey: JourneyStep[]): LogDraft[] {
-  const drafts: LogDraft[] = [];
-  const done = faker.number.int({ min: 1, max: journey.length - 1 });
-  const firstFailed = faker.datatype.boolean(0.25);
-
-  for (let i = 0; i < done; i++) {
-    const step = journey[i];
-    if (!step) break;
-    const status: ActionStatus = i === 0 && firstFailed ? 'failed' : 'sent';
-    const label = CHANNEL_LABELS[step.channel];
-    drafts.push({
-      nodeId: step.nodeId,
-      channel: step.channel,
-      status,
-      message:
-        status === 'failed'
-          ? `Relance ${label} en échec pour ${patient.fullName}`
-          : `Relance ${label} envoyée à ${patient.fullName}`,
-      notify: true,
-    });
-  }
-
-  const next = journey[done];
-  if (next) {
-    drafts.push({
-      nodeId: next.nodeId,
-      channel: next.channel,
-      status: 'pending',
-      message: `Relance ${CHANNEL_LABELS[next.channel]} planifiée pour ${patient.fullName}`,
-      notify: false,
-    });
-  }
-
-  return drafts;
-}
-
-/**
- * Build a completed story: the patient walked the entire journey to its end.
- * Every step is `sent` (the first occasionally `failed`, mirroring a real
- * fallback), and there is no `pending` step — the journey is over, so callers
- * place it firmly in the past (older bucket).
- */
-function completedStory(patient: Patient, journey: JourneyStep[]): LogDraft[] {
-  const firstFailed = faker.datatype.boolean(0.25);
-  return journey.map((step, i) => {
-    const status: ActionStatus = i === 0 && firstFailed ? 'failed' : 'sent';
-    const label = CHANNEL_LABELS[step.channel];
-    return {
-      nodeId: step.nodeId,
-      channel: step.channel,
-      status,
-      message:
-        status === 'failed'
-          ? `Relance ${label} en échec pour ${patient.fullName}`
-          : `Relance ${label} envoyée à ${patient.fullName}`,
-      notify: true,
-    };
-  });
+/** Mirrors `derivePatients`: pending → en_cours; else journeyOver → termine; else failure → bloque. */
+function deriveStatus(graph: WorkflowGraph, logs: RawLog[]): UiStatus {
+  if (logs.some((log) => log.status === 'pending')) return 'en_cours';
+  const latest = [...logs].sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())[0];
+  if (!latest) return 'en_cours';
+  if (!hasDownstreamChannel(graph, latest.nodeId)) return 'termine';
+  if (logs.some((log) => log.status === 'failed')) return 'bloque';
+  return 'en_cours';
 }
 
 async function main(): Promise<void> {
@@ -478,12 +533,16 @@ async function main(): Promise<void> {
   await prisma.actionLog.deleteMany();
   await prisma.workflow.deleteMany();
 
+  const j7Graph = buildJ7Graph();
+  const smsFirstGraph = buildSmsFirstGraph();
+  const whatsappGraph = buildWhatsAppExpressGraph();
+
   const j7 = await prisma.workflow.create({
     data: {
       name: 'Scénario type J+7',
       description:
         'Email à J+7, repli WhatsApp/SMS, courrier à J+15, fin à J+30 (scénario du brief).',
-      graph: asJson(buildJ7Graph()),
+      graph: asJson(j7Graph),
       settings: asJson(settings),
     },
   });
@@ -491,7 +550,7 @@ async function main(): Promise<void> {
     data: {
       name: 'Relance SMS prioritaire',
       description: "SMS d'abord, puis email à 3 jours, puis courrier à J+7.",
-      graph: asJson(buildSmsFirstGraph()),
+      graph: asJson(smsFirstGraph),
       settings: asJson(settings),
     },
   });
@@ -499,157 +558,88 @@ async function main(): Promise<void> {
     data: {
       name: 'Relance express WhatsApp',
       description: 'WhatsApp immédiat avec repli email si aucune réponse.',
-      graph: asJson(buildWhatsAppExpressGraph()),
+      graph: asJson(whatsappGraph),
       settings: asJson(settings),
     },
   });
 
-  const logs: ActionLogCreate[] = [];
-  /**
-   * Persist a patient story. `startAge` (age in days of the first step) defaults
-   * to a weighted bucket so in-progress journeys vary; special cases (blocked,
-   * completed) pass an explicit value to control their position in the past.
-   */
-  const pushStory = (
-    patient: Patient,
-    workflowId: string,
-    drafts: LogDraft[],
-    startAge: number = startAgeForBucket(pickStoryAge()),
-  ): void => {
-    const dates = spreadDatesForStory(drafts, startAge);
-    drafts.forEach((draft, i) => {
-      logs.push(draftToCreate(patient, workflowId, draft, dates[i] ?? new Date()));
-    });
-  };
+  const rosters = [
+    { workflow: j7, graph: j7Graph, patients: j7Patients },
+    { workflow: smsFirst, graph: smsFirstGraph, patients: smsFirstPatients },
+    { workflow: whatsappExpress, graph: whatsappGraph, patients: whatsappPatients },
+  ];
 
-  // --- Workflow J+7: 7 patients including the two special cases. ---
-  // Blocked: relances failing across channels, nothing scheduled after. The
-  // LAST log (chronologically) must be `failed` for ADR-006 priority 3 to fire
-  // (`bloque`); no pending step → every date stays in the past (mid-course age).
-  const blocked = makePatient();
-  pushStory(
-    blocked,
-    j7.id,
-    [
-      {
-        nodeId: 'email',
-        channel: 'email',
-        status: 'failed',
-        message: `Email rejeté pour ${blocked.fullName} (adresse invalide)`,
-        notify: true,
-      },
-      {
-        nodeId: 'sms',
-        channel: 'sms',
-        status: 'failed',
-        message: `SMS en échec pour ${blocked.fullName} (numéro injoignable)`,
-        notify: true,
-      },
-    ],
-    faker.number.int({ min: 8, max: 14 }),
+  const logs: ActionLogCreate[] = rosters.flatMap(({ workflow, patients }) =>
+    toCreates(patients, workflow.id),
   );
-
-  // Completed: no pending step → all dates in the past, spread over ~15-25 days
-  // to read as a finished journey.
-  const completed = makePatient();
-  pushStory(
-    completed,
-    j7.id,
-    [
-      {
-        nodeId: 'email',
-        channel: 'email',
-        status: 'failed',
-        message: `Email rejeté pour ${completed.fullName}`,
-        notify: true,
-      },
-      {
-        nodeId: 'whatsapp',
-        channel: 'whatsapp',
-        status: 'sent',
-        message: `WhatsApp envoyé à ${completed.fullName}`,
-        notify: true,
-      },
-      {
-        nodeId: 'letter',
-        channel: 'letter',
-        status: 'sent',
-        message: `Courrier postal envoyé à ${completed.fullName}`,
-        notify: true,
-      },
-    ],
-    faker.number.int({ min: 20, max: 25 }),
-  );
-
-  for (let i = 0; i < 5; i++) {
-    const patient = makePatient();
-    pushStory(patient, j7.id, inProgressStory(patient, J7_JOURNEY));
-  }
-
-  // Completed journeys live firmly in the past (full journey, all sent, no
-  // pending), so the dashboard shows finished patients in every workflow.
-  const completedAge = (): number => faker.number.int({ min: 18, max: 25 });
-
-  // --- Workflow SMS-first: 4 in-progress + 2 completed patients. ---
-  for (let i = 0; i < 4; i++) {
-    const patient = makePatient();
-    pushStory(patient, smsFirst.id, inProgressStory(patient, SMS_FIRST_JOURNEY));
-  }
-  for (let i = 0; i < 2; i++) {
-    const patient = makePatient();
-    pushStory(patient, smsFirst.id, completedStory(patient, SMS_FIRST_JOURNEY), completedAge());
-  }
-
-  // --- Workflow WhatsApp express: 4 in-progress + 2 completed patients. ---
-  for (let i = 0; i < 4; i++) {
-    const patient = makePatient();
-    pushStory(patient, whatsappExpress.id, inProgressStory(patient, WHATSAPP_JOURNEY));
-  }
-  for (let i = 0; i < 2; i++) {
-    const patient = makePatient();
-    pushStory(
-      patient,
-      whatsappExpress.id,
-      completedStory(patient, WHATSAPP_JOURNEY),
-      completedAge(),
-    );
-  }
-
   await prisma.actionLog.createMany({ data: logs });
 
-  const workflowCount = await prisma.workflow.count();
-  const logCount = await prisma.actionLog.count();
-  const patientCount = new Set(logs.map((log) => log.patientId)).size;
-
-  // Date sanity check: pending logs must be in the future, the rest in the past.
-  const now = Date.now();
-  const fmt = (d: Date): string => d.toISOString().slice(0, 10);
-  const pending = logs.filter((log) => log.status === 'pending');
-  const past = logs.filter((log) => log.status !== 'pending');
-  const pendingDates = pending.map((log) => new Date(log.occurredAt as Date));
-  const pastDates = past.map((log) => new Date(log.occurredAt as Date));
-  const pendingInFuture = pendingDates.every((d) => d.getTime() > now);
-  const pastInPast = pastDates.every((d) => d.getTime() <= now);
+  // -------------------------------------------------------------------------
+  // Validation — fails loudly (throws) so `db:reset` surfaces any incoherence.
+  // -------------------------------------------------------------------------
+  const fmt = (date: Date): string => date.toISOString().slice(0, 10);
   const minTime = (dates: Date[]): string =>
     dates.length ? fmt(new Date(Math.min(...dates.map((d) => d.getTime())))) : '—';
   const maxTime = (dates: Date[]): string =>
     dates.length ? fmt(new Date(Math.max(...dates.map((d) => d.getTime())))) : '—';
 
-  // A patient with a pending log is still in progress; the rest are done/blocked.
-  const patientsWithPending = new Set(pending.map((log) => log.patientId));
-  const inProgressCount = patientsWithPending.size;
-  const finishedCount = patientCount - inProgressCount;
+  const allLogs: RawLog[] = rosters.flatMap(({ patients }) => patients.flatMap((p) => p.logs));
+  const pendingDates = allLogs.filter((l) => l.status === 'pending').map((l) => l.occurredAt);
+  const pastDates = allLogs.filter((l) => l.status !== 'pending').map((l) => l.occurredAt);
+  const pendingInFuture = pendingDates.every((d) => d.getTime() > NOW);
+  const pastInPast = pastDates.every((d) => d.getTime() <= NOW);
+
+  // "Relances cette semaine" stat: sent/failed in the last 7 days.
+  const weekCutoff = NOW - 7 * DAY_MS;
+  const relancesThisWeek = allLogs.filter(
+    (l) => (l.status === 'sent' || l.status === 'failed') && l.occurredAt.getTime() >= weekCutoff,
+  ).length;
+  const patientsThisWeek = new Set(
+    rosters.flatMap(({ patients }) =>
+      patients
+        .filter((p) =>
+          p.logs.some(
+            (l) =>
+              (l.status === 'sent' || l.status === 'failed') &&
+              l.occurredAt.getTime() >= weekCutoff,
+          ),
+        )
+        .map((p) => p.id),
+    ),
+  ).size;
+
+  const patientCount = rosters.reduce((sum, { patients }) => sum + patients.length, 0);
 
   console.log(
-    `Seed terminé : ${workflowCount} workflows, ${patientCount} patients, ${logCount} action logs.`,
+    `Seed terminé : ${rosters.length} workflows, ${patientCount} patients, ${logs.length} action logs.`,
   );
-  console.log(`  • ${inProgressCount} patients en cours, ${finishedCount} terminés ou bloqués.`);
+
+  let ok = true;
+  for (const { workflow, graph, patients } of rosters) {
+    const counts: Record<UiStatus, number> = { en_cours: 0, bloque: 0, termine: 0 };
+    for (const p of patients) counts[deriveStatus(graph, p.logs)] += 1;
+    const complete = counts.en_cours >= 1 && counts.bloque >= 1 && counts.termine >= 1;
+    ok &&= complete;
+    console.log(
+      `  • ${workflow.name} (${patients.length} patients) : ` +
+        `${counts.en_cours} en cours, ${counts.bloque} bloqué(s), ${counts.termine} terminé(s) — ` +
+        `${complete ? 'OK' : 'KO (chaque workflow doit couvrir les 3 statuts)'}`,
+    );
+  }
+
   console.log(
-    `  • ${past.length} logs passés (sent/failed/skipped) du ${minTime(pastDates)} au ${maxTime(pastDates)} — tous dans le passé : ${pastInPast ? 'OK' : 'KO'}`,
+    `  • ${pastDates.length} logs passés (sent/failed/skipped) du ${minTime(pastDates)} au ${maxTime(pastDates)} — tous dans le passé : ${pastInPast ? 'OK' : 'KO'}`,
   );
   console.log(
-    `  • ${pending.length} logs pending du ${minTime(pendingDates)} au ${maxTime(pendingDates)} — tous dans le futur : ${pendingInFuture ? 'OK' : 'KO'}`,
+    `  • ${pendingDates.length} logs planifiés (pending) du ${minTime(pendingDates)} au ${maxTime(pendingDates)} — tous dans le futur : ${pendingInFuture ? 'OK' : 'KO'}`,
   );
+  console.log(
+    `  • ${relancesThisWeek} relances cette semaine sur ${patientsThisWeek} patients (≥ 3 attendu) : ${patientsThisWeek >= 3 ? 'OK' : 'KO'}`,
+  );
+
+  if (!ok || !pendingInFuture || !pastInPast || patientsThisWeek < 3) {
+    throw new Error('Seed invalide : invariants de cohérence non respectés (voir lignes KO).');
+  }
 }
 
 main()
