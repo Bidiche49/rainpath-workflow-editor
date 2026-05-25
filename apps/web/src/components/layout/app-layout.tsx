@@ -1,6 +1,11 @@
+import { HelpCircle } from 'lucide-react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 
+import { Button } from '@/components/ui/button';
 import { Toaster } from '@/components/ui/sonner';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { OnboardingDialog } from '@/features/onboarding/onboarding-dialog';
+import { useOnboarding } from '@/lib/hooks/useOnboarding';
 import { cn } from '@/lib/utils';
 
 const navItems = [
@@ -9,6 +14,8 @@ const navItems = [
 ];
 
 export function AppLayout() {
+  const onboarding = useOnboarding();
+
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
@@ -38,12 +45,37 @@ export function AppLayout() {
               </NavLink>
             ))}
           </nav>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="ml-auto text-muted-foreground"
+                  onClick={onboarding.open}
+                  aria-label="Aide / Présentation"
+                >
+                  <HelpCircle className="h-5 w-5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Aide / Présentation</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </header>
 
       <main className="flex-1">
         <Outlet />
       </main>
+
+      {/* Both dismissal and explicit completion persist: once seen (or skipped),
+          the walkthrough should not auto-open again on the next visit. */}
+      <OnboardingDialog
+        open={onboarding.isOpen}
+        onClose={onboarding.markCompleted}
+        onComplete={onboarding.markCompleted}
+      />
 
       <Toaster richColors position="top-right" />
     </div>
