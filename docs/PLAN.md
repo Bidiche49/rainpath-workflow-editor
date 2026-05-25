@@ -74,13 +74,18 @@ Chaque ticket porte : ID, titre, temps cible, dépendances, acceptance criteria,
 
 ### F-06 — Scaffold apps/web (Vite + React + shadcn)
 - **Temps** : 12 min — **Dépendances** : F-01
-- **Acceptance** : Vite + React 18 + TS strict. Tailwind installé et configuré. shadcn init + composants : button, sheet, dialog, table, switch, input, alert, alert-dialog, tooltip, sonner. React Router v6 avec routes `/`, `/workflows`, `/workflows/:id/edit`, `/workflows/:id/preview`. Layout shell (topbar + main) visible. `pnpm --filter web dev` lance sur :5173.
+- **Acceptance** : Vite + React 18 + TS strict. Tailwind installé et configuré. shadcn init + composants : button, sheet, dialog, table, switch, input, alert, alert-dialog, tooltip, sonner. React Router v6 avec routes `/`, `/workflows`, `/workflows/:id/edit`, `/workflows/:id/preview`. Layout shell (topbar + main) visible. `pnpm --filter web dev` lance sur :5173. + Vitest + jsdom + @testing-library/react + @testing-library/jest-dom dans devDependencies, vitest.config.ts env jsdom, src/test/setup.ts pour matchers jest-dom.
 - **Commit** : `feat(web): scaffold Vite, React, Tailwind, shadcn et routing`
 
 ### F-07 — Wiring monorepo (concurrently + workspace deps)
 - **Temps** : 5 min — **Dépendances** : F-04, F-05, F-06
 - **Acceptance** : `apps/api` et `apps/web` consomment `@rainpath/schemas` via workspace protocol. `pnpm dev` à la racine lance front + back en parallèle (via `concurrently` ou `turbo`). `pnpm test` lance toutes les suites. `pnpm typecheck` passe sur tout.
 - **Commit** : `chore(repo): wiring final monorepo avec scripts unifiés`
+
+### B-00 — Tokens design (canaux/statuts/exec) avec helpers anti-purge
+- **Temps** : 10 min — **Dépendances** : F-07
+- **Acceptance** : `tailwind.config` étendu (channel, status, exec). `apps/web/src/lib/design-tokens.ts` avec helpers statiques anti-purge. `--app-bg` CSS var. Infra Vitest web (jsdom + testing-library). Tests Vitest des helpers.
+- **Commit** : `feat(web): tokens design canaux/statuts/exec avec helpers statiques`
 
 ---
 
@@ -100,7 +105,7 @@ Chaque ticket porte : ID, titre, temps cible, dépendances, acceptance criteria,
 
 #### A-03 — Seed complet
 - **Temps** : 15 min — **Dépendances** : A-01, A-02
-- **Acceptance** : `pnpm db:seed` crée 3 workflows (dont le scénario exact du brief en preset nommé "Scénario type J+7"), 15 patients fictifs répartis sur ces workflows à différents stades, ~50 ActionLog cohérents (un patient bloqué, un terminé, un en attente, etc.). Idempotent (db:reset wipe + migrate + seed).
+- **Acceptance** : `pnpm db:seed` crée 3 workflows (dont le scénario exact du brief en preset nommé "Scénario type J+7"), 15 patients fictifs répartis sur ces workflows à différents stades, 20-40 ActionLogs cohérents (limite naturelle du parcours métier : WhatsApp XOR SMS, etc.) (un patient bloqué, un terminé, un en attente, etc.). Idempotent (db:reset wipe + migrate + seed).
 - **Commit** : `feat(api): seed avec workflows démo, patients fictifs et action logs`
 
 #### A-04 — Tests e2e backend
@@ -222,8 +227,8 @@ Cible réaliste : **3h45 - 4h30** (compression possible via batching Claude Code
 ```
 F-01 ─┬─ F-02 ─ F-03
       ├─ F-04 ─┐
-      ├─ F-05 ─┼─ F-07 ─┬─ Track A: A-01 → A-02 → A-03/A-04
-      └─ F-06 ─┘        └─ Track B: B-01 → B-02 → B-03/B-04
+      ├─ F-05 ─┼─ F-07 ─ B-00 ─┬─ Track A: A-01 → A-02 → A-03/A-04
+      └─ F-06 ─┘               └─ Track B: B-01 → B-02 → B-03/B-04
                                                       │
                                   Phase 2: I-01 → I-02, I-03, I-04
                                                       │
