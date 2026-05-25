@@ -47,15 +47,25 @@ describe('computeCurrentNodeId / computeNodeStatuses', () => {
     const logs = [log('email', '2026-05-10'), log('sms', '2026-05-20')];
     expect(computeCurrentNodeId(logs)).toBe('sms');
 
-    const statuses = computeNodeStatuses(logs);
+    const statuses = computeNodeStatuses(graph, logs);
     expect(statuses.get('email')).toBe('done');
     expect(statuses.get('sms')).toBe('current');
     expect(statuses.has('end')).toBe(false);
   });
 
+  it('marks a trailing scheduled action pending and puts current on the node feeding it', () => {
+    // email sent, then sms scheduled (pending). The patient sits on `wait`
+    // (which feeds sms), not on the not-yet-fired sms.
+    const logs = [log('email', '2026-05-10'), log('sms', '2026-06-01', 'pending')];
+    const statuses = computeNodeStatuses(graph, logs);
+    expect(statuses.get('email')).toBe('done');
+    expect(statuses.get('wait')).toBe('current');
+    expect(statuses.get('sms')).toBe('pending');
+  });
+
   it('returns null / empty for a patient with no logs', () => {
     expect(computeCurrentNodeId([])).toBeNull();
-    expect(computeNodeStatuses([]).size).toBe(0);
+    expect(computeNodeStatuses(graph, []).size).toBe(0);
   });
 });
 

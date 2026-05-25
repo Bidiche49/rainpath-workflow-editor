@@ -164,7 +164,7 @@ export function WorkflowPreviewPage() {
   // all stay clearly visible (I-08 FIX 4).
   const previewNodes = useMemo<AppNode[]>(() => {
     if (!workflow) return [];
-    const statuses = computeNodeStatuses(logsAsc);
+    const statuses = computeNodeStatuses(workflow.graph, logsAsc);
     // Workflow complete: nothing is "in progress" anymore, so promote the
     // current node to done and mark the reached End node done as well — that
     // green End is the visual "c'est fini" signal.

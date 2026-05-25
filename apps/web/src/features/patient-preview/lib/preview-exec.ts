@@ -42,19 +42,37 @@ export function computeFrontierNodeId(
 
 /**
  * Maps each visited node to its execution status (I-05):
- * - the last log's node → `current`;
- * - every other visited node → `done`;
+ * - every logged node → `done`;
+ * - the last log's node → `current`…
+ * - …unless that last log is `pending` (a *scheduled* action that hasn't
+ *   happened): then it is marked `pending` and `current` moves to the node
+ *   feeding into it — typically the Attente the patient is waiting in — so the
+ *   highlight sits on where the patient actually is, not on the future step;
  * - unvisited nodes are absent from the map (rendered idle / no highlight).
  *
  * `logsAsc` must be sorted ascending by `occurredAt`.
  */
-export function computeNodeStatuses(logsAsc: ActionLog[]): Map<string, NodeStatus> {
+export function computeNodeStatuses(
+  graph: WorkflowGraph,
+  logsAsc: ActionLog[],
+): Map<string, NodeStatus> {
   const statuses = new Map<string, NodeStatus>();
-  const currentNodeId = computeCurrentNodeId(logsAsc);
+  const last = logsAsc[logsAsc.length - 1];
+
   for (const log of logsAsc) {
     statuses.set(log.nodeId, 'done');
   }
-  if (currentNodeId) statuses.set(currentNodeId, 'current');
+  if (!last) return statuses;
+
+  if (last.status === 'pending') {
+    statuses.set(last.nodeId, 'pending');
+    const predecessor = graph.edges.find((edge) => edge.target === last.nodeId)?.source;
+    const currentId = predecessor ?? computeFrontierNodeId(logsAsc, null);
+    if (currentId) statuses.set(currentId, 'current');
+  } else {
+    statuses.set(last.nodeId, 'current');
+  }
+
   return statuses;
 }
 
