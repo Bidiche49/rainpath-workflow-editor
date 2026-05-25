@@ -26,13 +26,14 @@ interface BaseData {
 
 // ── Start / End ────────────────────────────────────────────────────────────
 
-function StartNodeComponent({ data, selected }: NodeProps) {
+function StartNodeComponent({ id, data, selected }: NodeProps) {
   const d = data as BaseData;
   return (
     <NodeShell
       type="start"
       icon={Play}
       label={d.label ?? 'Début'}
+      nodeId={id}
       selected={selected}
       status={d.status}
       validation={d.validation}
@@ -41,13 +42,14 @@ function StartNodeComponent({ data, selected }: NodeProps) {
   );
 }
 
-function EndNodeComponent({ data, selected }: NodeProps) {
+function EndNodeComponent({ id, data, selected }: NodeProps) {
   const d = data as BaseData;
   return (
     <NodeShell
       type="end"
       icon={Check}
       label={d.label ?? 'Fin'}
+      nodeId={id}
       selected={selected}
       status={d.status}
       validation={d.validation}
@@ -71,7 +73,7 @@ type ChannelType = keyof typeof CHANNEL_LABELS;
 function ChannelNode({
   type,
   icon,
-  props: { data, selected },
+  props: { id, data, selected },
 }: {
   type: ChannelType;
   icon: LucideIcon;
@@ -88,6 +90,7 @@ function ChannelNode({
       type={type}
       icon={icon}
       label={d.label ?? CHANNEL_LABELS[type]}
+      nodeId={id}
       selected={selected}
       status={status}
       validation={validation}
@@ -115,7 +118,7 @@ interface WaitData extends BaseData {
   delay?: { value: number; unit: string };
 }
 
-function WaitNodeComponent({ data, selected }: NodeProps) {
+function WaitNodeComponent({ id, data, selected }: NodeProps) {
   const d = data as WaitData;
   const summary = d.delay ? `${d.delay.value} ${d.delay.unit}` : undefined;
   return (
@@ -123,6 +126,7 @@ function WaitNodeComponent({ data, selected }: NodeProps) {
       type="wait"
       icon={Clock}
       label={d.label ?? (summary ? `Attendre ${summary}` : 'Attente')}
+      nodeId={id}
       selected={selected}
       status={d.status}
       validation={d.validation}
@@ -132,13 +136,14 @@ function WaitNodeComponent({ data, selected }: NodeProps) {
 
 // ── Condition (two source branches: yes / no) ───────────────────────────────
 
-function ConditionNodeComponent({ data, selected }: NodeProps) {
+function ConditionNodeComponent({ id, data, selected }: NodeProps) {
   const d = data as BaseData & { condition?: string };
   return (
     <NodeShell
       type="condition"
       icon={GitBranch}
       label={d.label ?? d.condition ?? 'Condition'}
+      nodeId={id}
       selected={selected}
       status={d.status}
       validation={d.validation}

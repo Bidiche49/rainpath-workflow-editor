@@ -1,13 +1,16 @@
 import { memo, type ReactNode } from 'react';
 
 import { Handle, Position } from '@xyflow/react';
-import { AlertCircle, AlertTriangle, Bell, type LucideIcon } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Bell, Trash2, type LucideIcon } from 'lucide-react';
 
+import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { getChannelStyles, getExecRingStyles, type ExecState } from '@/lib/design-tokens';
 import { cn } from '@/lib/utils';
 
 import type { NodeStatus, NodeType } from '@rainpath/schemas';
+
+import { useNodeActions } from './node-actions-context';
 
 /** Small coloured dot mirroring a node's runtime status (preview mode). */
 const STATUS_DOT: Record<NodeStatus, string> = {
@@ -107,10 +110,47 @@ function ValidationBadge({ type, message }: NodeValidation) {
   );
 }
 
+/**
+ * Quick-delete affordance (I-07 batch 2): a trash button on the card's
+ * top-right corner, revealed on hover or while the node is selected. Hidden in
+ * read-only preview and when a validation badge already owns the same corner.
+ */
+function TrashButton({ nodeId, selected }: { nodeId: string; selected?: boolean | undefined }) {
+  const { onRemoveNode } = useNodeActions();
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Supprimer ce nœud"
+            // `nodrag` stops React Flow from starting a node drag on press.
+            className={cn(
+              'nodrag absolute -right-2 -top-2 z-10 h-7 w-7 rounded-full border bg-white opacity-0 shadow-sm transition-opacity duration-150 hover:border-red-300 hover:bg-red-50 hover:text-red-600 group-hover:opacity-100',
+              selected && 'opacity-100',
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRemoveNode?.(nodeId);
+            }}
+          >
+            <Trash2 size={14} />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Supprimer ce nœud</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 export interface NodeShellProps {
   type: NodeType;
   icon: LucideIcon;
   label: string;
+  /** Canonical node id — enables the quick-delete trash affordance. */
+  nodeId?: string | undefined;
   selected?: boolean | undefined;
   status?: NodeStatus | undefined;
   /** Target handle on top (every node except Start). */
@@ -134,6 +174,7 @@ function NodeShellComponent({
   type,
   icon: Icon,
   label,
+  nodeId,
   selected,
   status,
   hasTarget = true,
@@ -143,10 +184,13 @@ function NodeShellComponent({
   children,
 }: NodeShellProps) {
   const styles = getChannelStyles(type);
+  const { onRemoveNode, readOnly } = useNodeActions();
+  // The validation badge owns the top-right corner; let it win over the trash.
+  const showTrash = !readOnly && !validation && onRemoveNode !== undefined && nodeId !== undefined;
   return (
     <div
       className={cn(
-        'relative min-w-[200px] rounded-xl border-2 p-3 shadow-sm transition-shadow hover:shadow-md',
+        'group relative min-w-[200px] rounded-xl border-2 p-3 shadow-sm transition-shadow hover:shadow-md',
         styles.border,
         styles.bg,
         selected && cn('ring-2', styles.ring),
@@ -155,6 +199,8 @@ function NodeShellComponent({
         status === 'pending' && 'opacity-60',
       )}
     >
+      {showTrash && <TrashButton nodeId={nodeId} selected={selected} />}
+
       {hasTarget && <Handle type="target" position={Position.Top} />}
 
       <div className="flex items-center gap-2.5">

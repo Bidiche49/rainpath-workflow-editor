@@ -290,6 +290,8 @@ export function WorkflowEditPage() {
           onNodeClick={setSelectedNodeId}
           onPaneClick={deselect}
           onViewportChange={editor.setViewport}
+          onRemoveNode={editor.removeNode}
+          onRemoveEdge={editor.removeEdge}
         />
       </div>
 

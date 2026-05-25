@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type DragEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, type DragEvent } from 'react';
 
 import {
   Background,
@@ -21,6 +21,7 @@ import type { AppEdge, AppNode } from '../hooks/useWorkflowEditor';
 import { applyAutoLayout } from '../lib/auto-layout';
 import { DND_NODE_TYPE } from '../lib/node-catalog';
 import { nodeTypes } from '../nodes';
+import { NodeActionsContext } from '../nodes/node-actions-context';
 import { NodeToolbar } from './NodeToolbar';
 
 function isNodeType(value: string): value is NodeType {
@@ -37,6 +38,10 @@ export interface WorkflowCanvasProps {
   onNodeClick?: (id: string) => void;
   onPaneClick?: () => void;
   onViewportChange?: (viewport: Viewport) => void;
+  /** Quick-delete a node from its in-card trash affordance (I-07 batch 2). */
+  onRemoveNode?: (id: string) => void;
+  /** Quick-delete an edge by double-clicking it (I-07 batch 2). */
+  onRemoveEdge?: (id: string) => void;
   /** Run dagre once on mount (existing workflow reloaded with no viewport). */
   autoLayoutOnMount?: boolean;
   /** Preview mode (I-05): disables editing interactions and the palette. */
@@ -54,11 +59,16 @@ function CanvasArea({
   onNodeClick,
   onPaneClick,
   onViewportChange,
+  onRemoveNode,
+  onRemoveEdge,
   autoLayoutOnMount,
   readOnly,
 }: WorkflowCanvasProps) {
   const { screenToFlowPosition } = useReactFlow();
   const didLayout = useRef(false);
+
+  // Stable context value so node re-renders are driven by state, not identity.
+  const nodeActions = useMemo(() => ({ onRemoveNode, readOnly }), [onRemoveNode, readOnly]);
 
   useEffect(() => {
     if (didLayout.current || !autoLayoutOnMount || nodes.length === 0) return;
@@ -93,31 +103,34 @@ function CanvasArea({
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        onNodeClick={(_, node) => onNodeClick?.(node.id)}
-        onPaneClick={onPaneClick}
-        onMoveEnd={(_, viewport) => onViewportChange?.(viewport)}
-        nodesDraggable={!readOnly}
-        nodesConnectable={!readOnly}
-        elementsSelectable={!readOnly}
-        fitView
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background
-          variant={BackgroundVariant.Dots}
-          gap={18}
-          size={1}
-          color="rgba(15,23,42,0.15)"
-        />
-        <MiniMap pannable zoomable />
-        <Controls />
-      </ReactFlow>
+      <NodeActionsContext.Provider value={nodeActions}>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeClick={(_, node) => onNodeClick?.(node.id)}
+          onEdgeDoubleClick={readOnly ? undefined : (_, edge) => onRemoveEdge?.(edge.id)}
+          onPaneClick={onPaneClick}
+          onMoveEnd={(_, viewport) => onViewportChange?.(viewport)}
+          nodesDraggable={!readOnly}
+          nodesConnectable={!readOnly}
+          elementsSelectable={!readOnly}
+          fitView
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={18}
+            size={1}
+            color="rgba(15,23,42,0.15)"
+          />
+          <MiniMap pannable zoomable />
+          <Controls />
+        </ReactFlow>
+      </NodeActionsContext.Provider>
     </div>
   );
 }
