@@ -21,6 +21,7 @@
     "prisma:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset --force",
+    "db:reset:empty": "prisma migrate reset --force --skip-seed",
     "db:seed": "prisma db seed"
   },
   "dependencies": {
