@@ -162,6 +162,48 @@ describe('WorkflowPreviewPage', () => {
     expect(createActionLog).not.toHaveBeenCalled();
   });
 
+  it('steps through a wait (no send) before firing the next channel', async () => {
+    // start → wait → email → end : the first click only advances onto the wait,
+    // the second click fires the email channel.
+    getWorkflow.mockResolvedValue({
+      ...workflow,
+      graph: {
+        nodes: [
+          { id: 'start', type: 'start', position: { x: 0, y: 0 }, data: {} },
+          {
+            id: 'wait',
+            type: 'wait',
+            position: { x: 0, y: 80 },
+            data: { delay: { value: 3, unit: 'days' } },
+          },
+          {
+            id: 'email',
+            type: 'email',
+            position: { x: 0, y: 160 },
+            data: { notifySecretariat: true },
+          },
+          { id: 'end', type: 'end', position: { x: 0, y: 240 }, data: {} },
+        ],
+        edges: [
+          { id: 'e1', source: 'start', target: 'wait' },
+          { id: 'e2', source: 'wait', target: 'email' },
+          { id: 'e3', source: 'email', target: 'end' },
+        ],
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
+    });
+    renderPage();
+
+    // 1st click: advance onto the wait — nothing is sent or persisted.
+    fireEvent.click(await screen.findByRole('button', { name: /Simuler l'étape suivante/i }));
+    expect(createActionLog).not.toHaveBeenCalled();
+
+    // 2nd click: now on the email channel → it fires.
+    fireEvent.click(screen.getByRole('button', { name: /Simuler l'étape suivante/i }));
+    await waitFor(() => expect(createActionLog).toHaveBeenCalledTimes(1));
+    expect(createActionLog.mock.calls[0]?.[0]).toMatchObject({ nodeId: 'email', channel: 'email' });
+  });
+
   it('disables the simulate button once the patient reached the End node', async () => {
     listActionLogs.mockResolvedValue([log({ nodeId: 'end', channel: 'email' })]);
     renderPage();

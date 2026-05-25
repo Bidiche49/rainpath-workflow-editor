@@ -1,4 +1,4 @@
-import type { ActionLog, Workflow } from '@rainpath/schemas';
+import type { ActionLog, NodeStatus, Workflow } from '@rainpath/schemas';
 import type { NodeChange } from '@xyflow/react';
 import { Activity, ChevronLeft, Lock } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -13,10 +13,10 @@ import { WorkflowCanvas } from '@/features/editor/components/WorkflowCanvas';
 import type { AppEdge, AppNode } from '@/features/editor/hooks/useWorkflowEditor';
 import { NODE_CATALOG } from '@/features/editor/lib/node-catalog';
 import { patientDisplayName } from '@/features/dashboard/lib/derive-patients';
-import { computeActiveEdges } from '@/features/patient-preview/lib/active-edges';
 import {
-  computeNodeStatuses,
-  computeSimulationStep,
+  computeReachedNodeId,
+  computeTakenPath,
+  isChannelType,
 } from '@/features/patient-preview/lib/preview-exec';
 import { ApiError } from '@/lib/api/client';
 import { createActionLog, listActionLogs, updateActionLog } from '@/lib/api/action-logs';
@@ -81,7 +81,7 @@ export function WorkflowPreviewPage() {
     void load();
   }, [load]);
 
-  // API returns newest-first; ascending order drives the execution status.
+  // API returns newest-first; ascending order drives the path & statuses.
   const logsAsc = useMemo(
     () => [...logs].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime()),
     [logs],
@@ -92,66 +92,62 @@ export function WorkflowPreviewPage() {
     [workflow],
   );
 
-  const currentNodeId = useMemo(() => {
-    const last = logsAsc[logsAsc.length - 1];
-    return last ? last.nodeId : startNodeId;
-  }, [logsAsc, startNodeId]);
-
-  // The single next simulatable step. Prioritises a scheduled (pending) action
-  // — that log already encodes which branch was taken — so simulating fires
-  // exactly that step and never re-rolls conditions to bypass it to the End.
-  const nextStep = useMemo(
-    () => (workflow ? computeSimulationStep(workflow.graph, logsAsc) : { kind: 'none' as const }),
+  // The ordered route the patient walks (Start → … → End); the preview steps
+  // along it one node at a time, stopping on every wait and condition.
+  const takenPath = useMemo(
+    () => (workflow ? computeTakenPath(workflow.graph, logsAsc) : []),
     [workflow, logsAsc],
   );
 
-  // The reached End node once the journey is over — drives the "done" highlight
-  // on the End node and lights the final edge into it (the End is never logged).
-  const reachedEndId = nextStep.kind === 'end' ? nextStep.node.id : null;
-
-  // Edges the patient actually traversed (future paths + dead branches excluded);
-  // extended to the reached End so its incoming edge lights up on completion.
-  const activeEdgeIds = useMemo(
-    () =>
-      workflow ? computeActiveEdges(workflow.graph, logsAsc, reachedEndId) : new Set<string>(),
-    [workflow, logsAsc, reachedEndId],
+  // The node actually reached (last non-pending log, else Start).
+  const reachedNodeId = useMemo(
+    () => computeReachedNodeId(logsAsc, startNodeId),
+    [logsAsc, startNodeId],
   );
 
-  // Nodes on the traversed route: every endpoint of an active edge, plus the
-  // current position (covers a fresh patient still sitting on Start).
-  const activeNodeIds = useMemo(() => {
-    const ids = new Set<string>();
-    if (!workflow) return ids;
-    for (const edge of workflow.graph.edges) {
-      if (activeEdgeIds.has(edge.id)) {
-        ids.add(edge.source);
-        ids.add(edge.target);
-      }
-    }
-    if (currentNodeId) ids.add(currentNodeId);
-    return ids;
-  }, [workflow, activeEdgeIds, currentNodeId]);
+  // Cursor = the node the simulation is currently paused on. It defaults to the
+  // reached node (persisted reality) and can be advanced one node per click via
+  // an ephemeral override. Stepping onto a wait/condition only sets the override
+  // (view-only, re-derived on reload); landing on a channel persists the send,
+  // which moves the reached node forward — at which point we drop the override
+  // so the cursor follows reality again.
+  const [cursorOverride, setCursorOverride] = useState<string | null>(null);
+  useEffect(() => {
+    setCursorOverride(null);
+  }, [reachedNodeId]);
+  const cursorNodeId = cursorOverride ?? reachedNodeId;
 
-  // Lightly dim the nodes off the traversed route (not yet reached, or on a
-  // condition branch that wasn't taken) so the real path stands out while they
-  // all stay clearly visible (I-08 FIX 4).
+  const cursorIndex = cursorNodeId ? takenPath.indexOf(cursorNodeId) : -1;
+  const nextNodeId =
+    cursorIndex >= 0 && cursorIndex < takenPath.length - 1
+      ? (takenPath[cursorIndex + 1] ?? null)
+      : null;
+  const nextNode = useMemo(
+    () => (nextNodeId ? (workflow?.graph.nodes.find((n) => n.id === nextNodeId) ?? null) : null),
+    [workflow, nextNodeId],
+  );
+
+  // Per-node status, relative to the cursor along the taken route: nodes before
+  // the cursor are done, the cursor is current (the End shows done), a scheduled
+  // node ahead shows pending; nodes off the route are dimmed.
   const previewNodes = useMemo<AppNode[]>(() => {
     if (!workflow) return [];
-    const statuses = computeNodeStatuses(workflow.graph, logsAsc);
-    // Workflow complete: nothing is "in progress" anymore, so promote the
-    // current node to done and mark the reached End node done as well — that
-    // green End is the visual "c'est fini" signal.
-    if (reachedEndId) {
-      for (const [nodeId, nodeStatus] of statuses) {
-        if (nodeStatus === 'current') statuses.set(nodeId, 'done');
-      }
-      statuses.set(reachedEndId, 'done');
-    }
+    const indexOnPath = new Map(takenPath.map((nodeId, i) => [nodeId, i]));
+    const pendingNodeIds = new Set(
+      logsAsc.filter((log) => log.status === 'pending').map((log) => log.nodeId),
+    );
     return workflow.graph.nodes.map((node) => {
-      const next = { ...node, data: { ...node.data, status: statuses.get(node.id) } };
-      return activeNodeIds.has(node.id) ? next : { ...next, style: { opacity: 0.5 } };
+      const idx = indexOnPath.get(node.id);
+      let nodeStatus: NodeStatus | undefined;
+      if (idx !== undefined && cursorIndex >= 0) {
+        if (idx < cursorIndex) nodeStatus = 'done';
+        else if (idx === cursorIndex) nodeStatus = node.type === 'end' ? 'done' : 'current';
+        else if (pendingNodeIds.has(node.id)) nodeStatus = 'pending';
+      }
+      const next = { ...node, data: { ...node.data, status: nodeStatus } };
+      return idx !== undefined ? next : { ...next, style: { opacity: 0.5 } };
     }) as AppNode[];
-  }, [workflow, logsAsc, activeNodeIds, reachedEndId]);
+  }, [workflow, takenPath, cursorIndex, logsAsc]);
 
   // Read-only canvas stays draggable for readability: positions the user drags
   // to are kept in this ephemeral overlay (never persisted) and merged on top of
@@ -182,53 +178,61 @@ export function WorkflowPreviewPage() {
     });
   }, []);
 
-  // Dim every edge the patient did not traverse, more strongly than the nodes.
+  // Edges between consecutive nodes of the taken route are active; the rest dim.
   const previewEdges = useMemo<AppEdge[]>(() => {
     if (!workflow) return [];
+    const activeEdgeIds = new Set<string>();
+    for (let i = 0; i < takenPath.length - 1; i += 1) {
+      const edge = workflow.graph.edges.find(
+        (e) => e.source === takenPath[i] && e.target === takenPath[i + 1],
+      );
+      if (edge) activeEdgeIds.add(edge.id);
+    }
     return workflow.graph.edges.map((edge) =>
       activeEdgeIds.has(edge.id) ? edge : { ...edge, style: { opacity: 0.25 } },
     );
-  }, [workflow, activeEdgeIds]);
+  }, [workflow, takenPath]);
 
   const handleSimulate = useCallback(async () => {
-    if (!workflow || !patientId) return;
-    const step = computeSimulationStep(workflow.graph, logsAsc);
-    if (step.kind !== 'channel') return;
+    if (!workflow || !patientId || !nextNode) return;
 
-    const label = NODE_META.get(step.channel)?.label ?? step.channel;
-    const message = `Relance ${label} envoyée à ${patientDisplayName(patientId)}`;
-    // Firing the step always succeeds — this is a deliberate "advance the
-    // patient" action, not a random outcome. If the step was already scheduled
-    // (a pending log), consume that very log (Planifié → Envoyé) instead of
-    // stacking a duplicate; the elapsed wait is implied by the send happening.
-    const scheduled = logs.find((l) => l.status === 'pending' && l.nodeId === step.node.id);
+    // Stepping onto a wait / condition (or the End) is a view-only advance —
+    // these nodes carry no sendable action, so we just move the cursor.
+    if (!isChannelType(nextNode.type)) {
+      setCursorOverride(nextNode.id);
+      if (nextNode.type === 'end') toast.success('Workflow terminé');
+      return;
+    }
+
+    // Landing on a channel sends it — always a success (a deliberate "advance"
+    // action, not a dice roll). If that step was already scheduled, consume the
+    // pending log (Planifié → Envoyé) instead of stacking a duplicate.
+    const channel = nextNode.type;
+    const message = `Relance ${NODE_META.get(channel)?.label ?? channel} envoyée à ${patientDisplayName(patientId)}`;
+    const scheduled = logs.find((l) => l.status === 'pending' && l.nodeId === nextNode.id);
     setSimulating(true);
     try {
       if (scheduled) {
-        await updateActionLog(scheduled.id, {
-          status: 'sent',
-          message,
-          occurredAt: new Date(),
-        });
+        await updateActionLog(scheduled.id, { status: 'sent', message, occurredAt: new Date() });
       } else {
         await createActionLog({
           patientId,
           workflowId: workflow.id,
-          nodeId: step.node.id,
-          channel: step.channel,
+          nodeId: nextNode.id,
+          channel,
           status: 'sent',
           message,
           occurredAt: new Date(),
         });
       }
       toast.success('Étape simulée');
-      await refetchLogs();
+      await refetchLogs(); // reached node advances → the cursor effect follows
     } catch (error) {
       notifyApiError(error);
     } finally {
       setSimulating(false);
     }
-  }, [workflow, patientId, logsAsc, logs, refetchLogs]);
+  }, [workflow, patientId, nextNode, logs, refetchLogs]);
 
   if (!patientId) {
     return (
@@ -294,7 +298,7 @@ export function WorkflowPreviewPage() {
 
         <Timeline
           logs={logs}
-          nextStep={nextStep}
+          canSimulate={nextNode !== null}
           simulating={simulating}
           onSimulate={() => void handleSimulate()}
         />
@@ -307,18 +311,16 @@ export function WorkflowPreviewPage() {
 
 function Timeline({
   logs,
-  nextStep,
+  canSimulate,
   simulating,
   onSimulate,
 }: {
   logs: ActionLog[];
-  nextStep: ReturnType<typeof computeSimulationStep>;
+  canSimulate: boolean;
   simulating: boolean;
   onSimulate: () => void;
 }) {
-  const canSimulate = nextStep.kind === 'channel';
-  const disabledReason =
-    nextStep.kind === 'end' ? 'Le workflow est terminé' : 'Étape suivante non définie';
+  const disabledReason = 'Le workflow est terminé';
 
   return (
     <aside className="flex w-[400px] flex-shrink-0 flex-col border-l bg-card">

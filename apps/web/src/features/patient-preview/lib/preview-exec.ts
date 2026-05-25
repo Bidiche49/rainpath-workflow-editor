@@ -2,34 +2,114 @@ import {
   CHANNEL_NODE_TYPES,
   type ActionLog,
   type ChannelNodeType,
-  type NodeStatus,
   type WorkflowGraph,
-  type WorkflowNode,
 } from '@rainpath/schemas';
 
-function isChannelType(type: string): type is ChannelNodeType {
+/** Narrow a node type to a channel (the only loggable / sendable kind). */
+export function isChannelType(type: string): type is ChannelNodeType {
   return (CHANNEL_NODE_TYPES as readonly string[]).includes(type);
 }
 
-/** The node carrying the patient's current position, or `null` if no log yet. */
-export function computeCurrentNodeId(logsAsc: ActionLog[]): string | null {
-  const last = logsAsc[logsAsc.length - 1];
-  return last ? last.nodeId : null;
+/** Outgoing adjacency: node id → its outgoing edges. */
+function outgoing(
+  graph: WorkflowGraph,
+): Map<string, { target: string; sourceHandle: string | null }[]> {
+  const map = new Map<string, { target: string; sourceHandle: string | null }[]>();
+  for (const edge of graph.edges) {
+    const list = map.get(edge.source) ?? [];
+    list.push({ target: edge.target, sourceHandle: edge.sourceHandle ?? null });
+    map.set(edge.source, list);
+  }
+  return map;
+}
+
+/** Shortest node path from `from` to `to` (inclusive), or `null` if unreachable. */
+function shortestNodePath(
+  adj: Map<string, { target: string; sourceHandle: string | null }[]>,
+  from: string,
+  to: string,
+): string[] | null {
+  if (from === to) return [from];
+  const prev = new Map<string, string>();
+  const visited = new Set<string>([from]);
+  const queue: string[] = [from];
+
+  while (queue.length > 0) {
+    const node = queue.shift()!;
+    for (const { target } of adj.get(node) ?? []) {
+      if (visited.has(target)) continue;
+      visited.add(target);
+      prev.set(target, node);
+      if (target === to) {
+        const path = [to];
+        let cursor = to;
+        while (cursor !== from) {
+          cursor = prev.get(cursor)!;
+          path.unshift(cursor);
+        }
+        return path;
+      }
+      queue.push(target);
+    }
+  }
+  return null;
 }
 
 /**
- * The node the patient has actually *reached* — the most recent **non-pending**
- * log, or `startNodeId` when nothing has happened yet.
+ * The ordered list of node ids the patient walks, Start → … → End — the route
+ * the read-only preview steps along, one node at a time (I-08).
  *
- * A `pending` log is a *scheduled* action that hasn't occurred (the seed dates
- * it in the future), so it must not be mistaken for a completed step: it is the
- * next action to fire. The "Simulate next step" walk therefore advances from
- * this frontier, not from the last (possibly still-scheduled) log — otherwise a
- * patient sitting on a scheduled final action looks "done" and can never finish.
+ * Branch choices *up to the last recorded action* come from the logs: we stitch
+ * the shortest path between each consecutive logged node (incl. a scheduled
+ * `pending` one), which faithfully reproduces the branch the patient took at
+ * every condition. Past the last logged node, the walk continues forward
+ * through the graph (a condition defaults to its `yes` branch) until an End.
  *
- * `logsAsc` must be sorted ascending by `occurredAt`.
+ * `logsAsc` must be sorted ascending by `occurredAt`. Returns `[]` with no Start.
  */
-export function computeFrontierNodeId(
+export function computeTakenPath(graph: WorkflowGraph, logsAsc: ActionLog[]): string[] {
+  const adj = outgoing(graph);
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const startId = graph.nodes.find((node) => node.type === 'start')?.id ?? null;
+  if (!startId) return [];
+
+  // Waypoints: Start, then each logged node (chronological, consecutive dups merged).
+  const waypoints: string[] = [startId];
+  for (const log of logsAsc) {
+    if (waypoints[waypoints.length - 1] !== log.nodeId) waypoints.push(log.nodeId);
+  }
+
+  // Stitch the shortest path between consecutive waypoints.
+  const path: string[] = [waypoints[0]!];
+  for (let i = 1; i < waypoints.length; i += 1) {
+    const segment = shortestNodePath(adj, waypoints[i - 1]!, waypoints[i]!);
+    if (segment) path.push(...segment.slice(1));
+    else path.push(waypoints[i]!);
+  }
+
+  // Continue forward to the End past the last waypoint (default = `yes` branch).
+  const seen = new Set(path);
+  let cursor = path[path.length - 1]!;
+  for (;;) {
+    const node = nodeById.get(cursor);
+    if (!node || node.type === 'end') break;
+    const outs = adj.get(cursor) ?? [];
+    if (outs.length === 0) break;
+    const chosen =
+      node.type === 'condition'
+        ? (outs.find((e) => (e.sourceHandle ?? '') === 'yes') ?? outs[0]!)
+        : outs[0]!;
+    if (seen.has(chosen.target)) break; // guard against cycles
+    seen.add(chosen.target);
+    path.push(chosen.target);
+    cursor = chosen.target;
+  }
+
+  return path;
+}
+
+/** The node actually reached: the last non-`pending` log, or the Start node. */
+export function computeReachedNodeId(
   logsAsc: ActionLog[],
   startNodeId: string | null,
 ): string | null {
@@ -38,115 +118,4 @@ export function computeFrontierNodeId(
     if (log && log.status !== 'pending') return log.nodeId;
   }
   return startNodeId;
-}
-
-/**
- * Maps each visited node to its execution status (I-05):
- * - every logged node → `done`;
- * - the last log's node → `current`…
- * - …unless that last log is `pending` (a *scheduled* action that hasn't
- *   happened): then it is marked `pending` and `current` moves to the node
- *   feeding into it — typically the Attente the patient is waiting in — so the
- *   highlight sits on where the patient actually is, not on the future step;
- * - unvisited nodes are absent from the map (rendered idle / no highlight).
- *
- * `logsAsc` must be sorted ascending by `occurredAt`.
- */
-export function computeNodeStatuses(
-  graph: WorkflowGraph,
-  logsAsc: ActionLog[],
-): Map<string, NodeStatus> {
-  const statuses = new Map<string, NodeStatus>();
-  const last = logsAsc[logsAsc.length - 1];
-
-  for (const log of logsAsc) {
-    statuses.set(log.nodeId, 'done');
-  }
-  if (!last) return statuses;
-
-  if (last.status === 'pending') {
-    statuses.set(last.nodeId, 'pending');
-    const predecessor = graph.edges.find((edge) => edge.target === last.nodeId)?.source;
-    const currentId = predecessor ?? computeFrontierNodeId(logsAsc, null);
-    if (currentId) statuses.set(currentId, 'current');
-  } else {
-    statuses.set(last.nodeId, 'current');
-  }
-
-  return statuses;
-}
-
-export type NextStep =
-  | { kind: 'channel'; node: WorkflowNode; channel: ChannelNodeType }
-  | { kind: 'end'; node: WorkflowNode }
-  | { kind: 'none' };
-
-/**
- * Walks forward from `currentNodeId` to the next channel node — the next
- * simulatable relance. Structural nodes (start/wait/condition) are hopped over;
- * a condition node forks on a random `yes`/`no` branch. Returns `end` when an
- * End node is reached and `none` on a dead-end, an orphan, or a cycle.
- */
-export function computeNextStep(graph: WorkflowGraph, currentNodeId: string | null): NextStep {
-  if (!currentNodeId) return { kind: 'none' };
-
-  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
-  const visited = new Set<string>();
-  let cursor = currentNodeId;
-
-  for (;;) {
-    if (visited.has(cursor)) return { kind: 'none' };
-    visited.add(cursor);
-
-    const node = nodeById.get(cursor);
-    if (!node) return { kind: 'none' };
-
-    const outgoing = graph.edges.filter((edge) => edge.source === cursor);
-    if (outgoing.length === 0) {
-      return node.type === 'end' ? { kind: 'end', node } : { kind: 'none' };
-    }
-
-    let edge = outgoing[0];
-    if (node.type === 'condition') {
-      const branch = Math.random() < 0.5 ? 'yes' : 'no';
-      edge = outgoing.find((e) => (e.sourceHandle ?? '') === branch) ?? outgoing[0];
-    }
-    if (!edge) return { kind: 'none' };
-
-    const target = nodeById.get(edge.target);
-    if (!target) return { kind: 'none' };
-
-    if (isChannelType(target.type)) {
-      return { kind: 'channel', node: target, channel: target.type };
-    }
-    if (target.type === 'end') return { kind: 'end', node: target };
-
-    cursor = target.id;
-  }
-}
-
-/**
- * The single step the user can simulate next.
- *
- * A scheduled (`pending`) log is the source of truth for what happens next: it
- * already records *which* action is planned and therefore which branch the
- * patient took. We fire exactly that one action — never re-walking the graph,
- * which would re-roll conditions and could wrongly bypass the scheduled step
- * straight to the End (marking the workflow "done" while an action is still
- * only planned). The soonest pending wins (`logsAsc` is date-ascending).
- *
- * Only when nothing is scheduled do we walk forward from the reached frontier
- * to find the next channel — or the End when the journey is genuinely over.
- */
-export function computeSimulationStep(graph: WorkflowGraph, logsAsc: ActionLog[]): NextStep {
-  const pending = logsAsc.find((log) => log.status === 'pending');
-  if (pending) {
-    const node = graph.nodes.find((n) => n.id === pending.nodeId);
-    if (node && isChannelType(node.type)) {
-      return { kind: 'channel', node, channel: node.type };
-    }
-  }
-
-  const startNodeId = graph.nodes.find((n) => n.type === 'start')?.id ?? null;
-  return computeNextStep(graph, computeFrontierNodeId(logsAsc, startNodeId));
 }
