@@ -140,6 +140,64 @@ describe('derivePatients', () => {
     );
     expect(row?.currentNodeType).toBe('whatsapp');
   });
+
+  // --- ADR-006: status reads the LAST log, not the whole failure history. ---
+
+  it('classes failed-then-recovered-to-the-end as termine, not bloque (ticket case)', () => {
+    // Old failure on `email`, then recovered all the way to the last channel
+    // `sms` (only `end` after it). The stale failure must be ignored → termine.
+    const [row] = derivePatients(
+      [
+        log({
+          patientId: 'pat_c.c_0008',
+          nodeId: 'sms',
+          status: 'sent',
+          occurredAt: new Date('2026-05-20'),
+        }),
+        log({
+          patientId: 'pat_c.c_0008',
+          nodeId: 'email',
+          status: 'failed',
+          occurredAt: new Date('2026-05-10'),
+        }),
+      ],
+      [workflow],
+    );
+    expect(row?.status).toBe('termine');
+  });
+
+  it('does not blame an old failure when the last log is sent and a channel is still ahead', () => {
+    // The residual defect of the previous rule: a stale failure with the last
+    // log `sent` and `sms` still reachable downstream → en_cours, never bloque.
+    const [row] = derivePatients(
+      [
+        log({
+          patientId: 'pat_r.r_0006',
+          nodeId: 'email',
+          status: 'sent',
+          occurredAt: new Date('2026-05-20'),
+        }),
+        log({
+          patientId: 'pat_r.r_0006',
+          nodeId: 'email',
+          status: 'failed',
+          occurredAt: new Date('2026-05-10'),
+        }),
+      ],
+      [workflow],
+    );
+    expect(row?.status).toBe('en_cours');
+  });
+
+  it('keeps a pending on the journey’s final channel en_cours (pending beats "no downstream")', () => {
+    // `sms` is the last channel (only `end` after it): hasDownstreamChannel is
+    // false, but a pending relance there means the patient is still moving.
+    const [row] = derivePatients(
+      [log({ patientId: 'pat_p.p_0007', nodeId: 'sms', status: 'pending' })],
+      [workflow],
+    );
+    expect(row?.status).toBe('en_cours');
+  });
 });
 
 describe('countRelancesInLastDays', () => {

@@ -173,33 +173,58 @@ Par ailleurs, factoriser la construction des huit node schemas (start/end/email/
 
 ---
 
-## ADR-006 — Détection du statut « bloqué » : « au moins une relance failed »
+## ADR-006 — Règle de classification du statut patient
 
 **Statut** : Accepté
 **Date** : 2026-05-25
 
 ### Contexte
 
-Le dashboard classe chaque patient en `en_cours` / `bloque` / `termine` à partir de ses `ActionLog`. Deux règles possibles pour « bloqué » :
+Le dashboard agrège les patients depuis leur historique d'`ActionLog` et leur
+attribue un statut : `in_progress`, `blocked`, `completed`. La règle doit être
+basée sur l'état actuel du patient (son dernier log), pas sur un scan
+exhaustif de son historique, sinon un patient ayant échoué une fois puis
+repris reste classé bloqué à vie.
 
-1. « Le **dernier** log est `failed` ».
-2. « Le patient a **au moins un** log `failed` ».
-
-La règle 1 paraît plus intuitive, mais le parcours métier réel (et le seed qui le reflète) émet un échec en **première** étape, puis les étapes suivantes réussissent et le dernier log devient un `pending` planifié. Une règle « dernier log failed » ne flaggerait alors jamais personne.
+Contrainte du modèle : `ActionLog.channel` est typé `ChannelNodeType`
+(`email | sms | whatsapp | letter`). Les nodes structurels (start, end,
+wait, condition) n'apparaissent jamais comme channel d'un log. Tester
+"dernier log atteint un node end" est donc une règle morte.
 
 ### Décision
 
-Un patient est `bloque` dès qu'**au moins une** de ses relances est `failed` (et qu'il n'a pas atteint un node End). Logique isolée et testée dans `apps/web/src/features/dashboard/lib/derive-patients.ts`.
+Classification en 4 priorités, basée sur LE DERNIER LOG du patient :
+
+1. `pending` (action future planifiée) → `in_progress`.
+2. Sinon, si plus aucun canal n'est en aval du dernier nodeId visité dans
+   le graph (`hasDownstreamChannel === false`) → `completed`. C'est
+   l'équivalent métier de "le patient a atteint la fin de son parcours".
+3. Sinon, si le dernier log est `failed` → `blocked`.
+4. Sinon → `in_progress`.
+
+Logique isolée et testée dans `apps/web/src/features/dashboard/lib/derive-patients.ts`.
 
 ### Conséquences
 
-- Sémantique métier alignée sur la réalité des parcours : un échec quelque part dans la séquence signale un blocage à traiter, même si une étape ultérieure a suivi.
-- Décision documentée par commentaire en regard du code (rationale conservée près de l'implémentation).
-- Trade-off : un patient « débloqué » manuellement plus tard resterait marqué `bloque` tant qu'on raisonne sur l'historique brut. Hors scope (pas d'action de déblocage dans le périmètre), mais à revoir si un workflow de résolution est ajouté.
+- Un échec ancien suivi d'une reprise réussie ne classe plus le patient
+  bloqué à vie : priorité 2 ou 3 sur le dernier log seulement.
+- Un patient avec un pending futur reste in_progress même si le pending
+  porte sur le dernier canal du graph (la rule pending bat la rule
+  "no downstream").
+- Aucune dépendance à un hypothétique "log sur end" : le seed et la
+  simulation continuent à n'émettre des logs que sur les canaux.
 
 ### Alternatives considérées
 
-- **« Dernier log failed »** : ne flagge jamais personne sur les parcours réels (échec early, succès tardif) → règle morte.
+- **Règle naïve "dernier log failed → bloqué" sans condition d'aval** :
+  classerait bloqué un patient ayant échoué sur le dernier canal d'un
+  parcours linéaire complet, alors qu'il a en réalité terminé.
+- **Étendre `ActionLog.channel` à `NodeType` pour autoriser un log
+  terminal sur end** : casse le contrat sémantique (channel = moyen de
+  communication), force seed + simulation + tests à émettre des logs
+  "fantômes" sur end. Refusé.
+- **Scan complet de l'historique pour détecter un failed** : c'était
+  la règle initiale. Conduit à des patients "bloqués à vie".
 
 ---
 

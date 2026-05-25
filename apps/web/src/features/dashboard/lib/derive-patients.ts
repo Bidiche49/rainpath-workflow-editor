@@ -70,16 +70,20 @@ function hasDownstreamChannel(workflow: Workflow | undefined, fromNodeId: string
  * `logs` is expected newest-first (the API sorts by `occurredAt desc`), so the
  * first log seen for a patient is their latest action.
  *
- * Status rules derive from signals the data actually carries — note that
- * `ActionLog.channel` cannot represent an End node, so no log ever lands on one
- * and "a log on an `end` node" would never fire:
- * - a `pending` log means a relance is scheduled ahead → `en_cours` (takes
- *   precedence: a patient with a future action is never "done", even if an
- *   earlier step failed and was re-scheduled);
- * - otherwise, if no channel node remains reachable downstream of the current
- *   node, the journey is over → `termine`;
- * - otherwise a `failed` relance with nothing scheduled means the journey
- *   stalled and needs attention → `bloque`;
+ * The status reads the patient's **latest log**, not their whole history — a
+ * single failure early in a journey that later recovered must not pin a patient
+ * to `bloque` forever. In priority order:
+ * - the latest log is `pending` → a relance is scheduled ahead, so the patient
+ *   is still moving even if it sits on the journey's final channel → `en_cours`
+ *   (this guard must come first: otherwise a pending on the last channel would
+ *   read as "journey over");
+ * - otherwise, if no channel node remains reachable downstream of the latest
+ *   node, the patient has run the journey to its end → `termine`. (This is the
+ *   real-model meaning of "reached the End": `ActionLog.channel` can only be a
+ *   channel, so no log ever lands on an End node — we detect the end of the road
+ *   structurally via `hasDownstreamChannel`, not by a log on an `end` node.)
+ * - otherwise, if the latest relance `failed`, the journey stalled on a failure
+ *   and needs attention → `bloque`;
  * - otherwise → `en_cours`.
  */
 export function derivePatients(logs: ActionLog[], workflows: Workflow[]): PatientRow[] {
@@ -103,16 +107,15 @@ export function derivePatients(logs: ActionLog[], workflows: Workflow[]): Patien
       workflow ? workflow.graph.nodes.map((node) => [node.id, node.type]) : [],
     );
 
-    const hasPending = patientLogs.some((log) => log.status === 'pending');
     const journeyOver = !hasDownstreamChannel(workflow, latest.nodeId);
-    const hasFailure = patientLogs.some((log) => log.status === 'failed');
-    const status: PatientUiStatus = hasPending
-      ? 'en_cours'
-      : journeyOver
-        ? 'termine'
-        : hasFailure
-          ? 'bloque'
-          : 'en_cours';
+    const status: PatientUiStatus =
+      latest.status === 'pending'
+        ? 'en_cours'
+        : journeyOver
+          ? 'termine'
+          : latest.status === 'failed'
+            ? 'bloque'
+            : 'en_cours';
 
     rows.push({
       patientId,

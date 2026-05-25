@@ -523,7 +523,9 @@ async function main(): Promise<void> {
   };
 
   // --- Workflow J+7: 7 patients including the two special cases. ---
-  // Blocked: no pending step → every date stays in the past (mid-course age).
+  // Blocked: relances failing across channels, nothing scheduled after. The
+  // LAST log (chronologically) must be `failed` for ADR-006 priority 3 to fire
+  // (`bloque`); no pending step → every date stays in the past (mid-course age).
   const blocked = makePatient();
   pushStory(
     blocked,
@@ -537,11 +539,11 @@ async function main(): Promise<void> {
         notify: true,
       },
       {
-        nodeId: 'whatsapp',
-        channel: 'whatsapp',
-        status: 'skipped',
-        message: `WhatsApp ignoré pour ${blocked.fullName} (aucun numéro WhatsApp)`,
-        notify: false,
+        nodeId: 'sms',
+        channel: 'sms',
+        status: 'failed',
+        message: `SMS en échec pour ${blocked.fullName} (numéro injoignable)`,
+        notify: true,
       },
     ],
     faker.number.int({ min: 8, max: 14 }),
