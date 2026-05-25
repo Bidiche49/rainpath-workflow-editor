@@ -6,6 +6,7 @@ import {
   computeFrontierNodeId,
   computeNextStep,
   computeNodeStatuses,
+  computeSimulationStep,
 } from './preview-exec';
 
 function log(nodeId: string, occurredAt: string, status: ActionLog['status'] = 'sent'): ActionLog {
@@ -90,6 +91,57 @@ describe('computeFrontierNodeId', () => {
   it('falls back to the start node when no action has actually happened', () => {
     expect(computeFrontierNodeId([], 'start')).toBe('start');
     expect(computeFrontierNodeId([log('email', '2026-06-01', 'pending')], 'start')).toBe('start');
+  });
+});
+
+describe('computeSimulationStep', () => {
+  // start → whatsapp → condition ─yes→ email ; condition ─no→ end.
+  const branchGraph: WorkflowGraph = {
+    nodes: [
+      { id: 'start', type: 'start', position: { x: 0, y: 0 }, data: {} },
+      { id: 'wa', type: 'whatsapp', position: { x: 0, y: 0 }, data: { notifySecretariat: true } },
+      { id: 'cond', type: 'condition', position: { x: 0, y: 0 }, data: { condition: 'c' } },
+      { id: 'email', type: 'email', position: { x: 0, y: 0 }, data: { notifySecretariat: true } },
+      { id: 'end', type: 'end', position: { x: 0, y: 0 }, data: {} },
+    ],
+    edges: [
+      { id: 'e1', source: 'start', target: 'wa' },
+      { id: 'e2', source: 'wa', target: 'cond' },
+      { id: 'e3', source: 'cond', target: 'email', sourceHandle: 'yes' },
+      { id: 'e4', source: 'cond', target: 'end', sourceHandle: 'no' },
+    ],
+    viewport: { x: 0, y: 0, zoom: 1 },
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('fires the scheduled pending action, never re-rolling the condition to the End', () => {
+    // The roll would pick the "no" branch → End; the pending email must win.
+    vi.spyOn(Math, 'random').mockReturnValue(0.9);
+    const logs = [log('wa', '2026-05-10'), log('email', '2026-06-01', 'pending')];
+    expect(computeSimulationStep(branchGraph, logs)).toEqual({
+      kind: 'channel',
+      node: expect.objectContaining({ id: 'email' }),
+      channel: 'email',
+    });
+  });
+
+  it('walks forward from the frontier when nothing is scheduled', () => {
+    // email sent (no pending) → next channel forward is sms (module graph).
+    expect(computeSimulationStep(graph, [log('email', '2026-05-10')])).toEqual({
+      kind: 'channel',
+      node: expect.objectContaining({ id: 'sms' }),
+      channel: 'sms',
+    });
+  });
+
+  it('reports end only once nothing is scheduled and the journey is over', () => {
+    expect(computeSimulationStep(graph, [log('sms', '2026-05-10')])).toEqual({
+      kind: 'end',
+      node: expect.objectContaining({ id: 'end' }),
+    });
   });
 });
 

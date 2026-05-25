@@ -124,3 +124,29 @@ export function computeNextStep(graph: WorkflowGraph, currentNodeId: string | nu
     cursor = target.id;
   }
 }
+
+/**
+ * The single step the user can simulate next.
+ *
+ * A scheduled (`pending`) log is the source of truth for what happens next: it
+ * already records *which* action is planned and therefore which branch the
+ * patient took. We fire exactly that one action — never re-walking the graph,
+ * which would re-roll conditions and could wrongly bypass the scheduled step
+ * straight to the End (marking the workflow "done" while an action is still
+ * only planned). The soonest pending wins (`logsAsc` is date-ascending).
+ *
+ * Only when nothing is scheduled do we walk forward from the reached frontier
+ * to find the next channel — or the End when the journey is genuinely over.
+ */
+export function computeSimulationStep(graph: WorkflowGraph, logsAsc: ActionLog[]): NextStep {
+  const pending = logsAsc.find((log) => log.status === 'pending');
+  if (pending) {
+    const node = graph.nodes.find((n) => n.id === pending.nodeId);
+    if (node && isChannelType(node.type)) {
+      return { kind: 'channel', node, channel: node.type };
+    }
+  }
+
+  const startNodeId = graph.nodes.find((n) => n.type === 'start')?.id ?? null;
+  return computeNextStep(graph, computeFrontierNodeId(logsAsc, startNodeId));
+}

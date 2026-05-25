@@ -15,9 +15,8 @@ import { NODE_CATALOG } from '@/features/editor/lib/node-catalog';
 import { patientDisplayName } from '@/features/dashboard/lib/derive-patients';
 import { computeActiveEdges } from '@/features/patient-preview/lib/active-edges';
 import {
-  computeFrontierNodeId,
-  computeNextStep,
   computeNodeStatuses,
+  computeSimulationStep,
 } from '@/features/patient-preview/lib/preview-exec';
 import { ApiError } from '@/lib/api/client';
 import { createActionLog, listActionLogs, updateActionLog } from '@/lib/api/action-logs';
@@ -98,17 +97,12 @@ export function WorkflowPreviewPage() {
     return last ? last.nodeId : startNodeId;
   }, [logsAsc, startNodeId]);
 
-  // The node actually reached (ignores a trailing scheduled action). The next
-  // simulated step advances from here, so a patient whose final action is only
-  // scheduled can still fire it and reach the End (I-08).
-  const frontierNodeId = useMemo(
-    () => computeFrontierNodeId(logsAsc, startNodeId),
-    [logsAsc, startNodeId],
-  );
-
+  // The single next simulatable step. Prioritises a scheduled (pending) action
+  // — that log already encodes which branch was taken — so simulating fires
+  // exactly that step and never re-rolls conditions to bypass it to the End.
   const nextStep = useMemo(
-    () => (workflow ? computeNextStep(workflow.graph, frontierNodeId) : { kind: 'none' as const }),
-    [workflow, frontierNodeId],
+    () => (workflow ? computeSimulationStep(workflow.graph, logsAsc) : { kind: 'none' as const }),
+    [workflow, logsAsc],
   );
 
   // The reached End node once the journey is over — drives the "done" highlight
@@ -198,7 +192,7 @@ export function WorkflowPreviewPage() {
 
   const handleSimulate = useCallback(async () => {
     if (!workflow || !patientId) return;
-    const step = computeNextStep(workflow.graph, frontierNodeId);
+    const step = computeSimulationStep(workflow.graph, logsAsc);
     if (step.kind !== 'channel') return;
 
     const label = NODE_META.get(step.channel)?.label ?? step.channel;
@@ -234,7 +228,7 @@ export function WorkflowPreviewPage() {
     } finally {
       setSimulating(false);
     }
-  }, [workflow, patientId, frontierNodeId, logs, refetchLogs]);
+  }, [workflow, patientId, logsAsc, logs, refetchLogs]);
 
   if (!patientId) {
     return (
@@ -318,7 +312,7 @@ function Timeline({
   onSimulate,
 }: {
   logs: ActionLog[];
-  nextStep: ReturnType<typeof computeNextStep>;
+  nextStep: ReturnType<typeof computeSimulationStep>;
   simulating: boolean;
   onSimulate: () => void;
 }) {
