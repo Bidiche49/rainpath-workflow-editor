@@ -12,6 +12,7 @@ import { WorkflowCanvas } from '@/features/editor/components/WorkflowCanvas';
 import type { AppEdge, AppNode } from '@/features/editor/hooks/useWorkflowEditor';
 import { NODE_CATALOG } from '@/features/editor/lib/node-catalog';
 import { patientDisplayName } from '@/features/dashboard/lib/derive-patients';
+import { computeActiveEdges } from '@/features/patient-preview/lib/active-edges';
 import { computeNextStep, computeNodeStatuses } from '@/features/patient-preview/lib/preview-exec';
 import { ApiError } from '@/lib/api/client';
 import { createActionLog, listActionLogs } from '@/lib/api/action-logs';
@@ -120,7 +121,15 @@ export function WorkflowPreviewPage() {
     })) as AppNode[];
   }, [workflow, logsAsc]);
 
-  const previewEdges = useMemo<AppEdge[]>(() => (workflow ? workflow.graph.edges : []), [workflow]);
+  // Dim every edge the patient did not traverse (future paths + dead branches),
+  // so the route actually taken stands out in the read-only preview (I-08 FIX 4).
+  const previewEdges = useMemo<AppEdge[]>(() => {
+    if (!workflow) return [];
+    const activeEdgeIds = computeActiveEdges(workflow.graph, logsAsc);
+    return workflow.graph.edges.map((edge) =>
+      activeEdgeIds.has(edge.id) ? edge : { ...edge, style: { opacity: 0.25 } },
+    );
+  }, [workflow, logsAsc]);
 
   const nextStep = useMemo(
     () => (workflow ? computeNextStep(workflow.graph, currentNodeId) : { kind: 'none' as const }),
