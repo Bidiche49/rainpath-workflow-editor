@@ -71,7 +71,8 @@ _À compléter en fin de sprint._
 
 ### Ce que j'aurais amélioré avec plus de temps
 
-_À compléter en fin de sprint._
+- **Enrichir `ActionStatusSchema`.** L'enum persisté (`pending | sent | failed | skipped`) est plus pauvre que le cycle de vie de présentation `LogStatus` (`sent | delivered | opened | rejected | scheduled`). Le dashboard mappe l'un vers l'autre via `apps/web/src/lib/status-mapper.ts`, mais sans distinction réelle `delivered`/`opened`. Côté backend, ajouter ces états (et les transitions) donnerait un suivi de relance granulaire. Le mapper centralise déjà la dette : il suffira de l'enrichir.
+- **Table `Patient` dédiée.** Les patients sont aujourd'hui dérivés des `ActionLog` (le nom est reconstruit depuis l'`id`). Une vraie entité `Patient` (nom, contact, métadonnées) clarifierait le modèle et éviterait la reconstruction de nom.
 
 ### Ce qui est manquant ou incomplet
 
