@@ -437,6 +437,29 @@ function inProgressStory(patient: Patient, journey: JourneyStep[]): LogDraft[] {
   return drafts;
 }
 
+/**
+ * Build a completed story: the patient walked the entire journey to its end.
+ * Every step is `sent` (the first occasionally `failed`, mirroring a real
+ * fallback), and there is no `pending` step — the journey is over, so callers
+ * place it firmly in the past (older bucket).
+ */
+function completedStory(patient: Patient, journey: JourneyStep[]): LogDraft[] {
+  const firstFailed = faker.datatype.boolean(0.25);
+  return journey.map((step, i) => {
+    const status: ActionStatus = i === 0 && firstFailed ? 'failed' : 'sent';
+    return {
+      nodeId: step.nodeId,
+      channel: step.channel,
+      status,
+      message:
+        status === 'failed'
+          ? `Relance ${step.channel} en échec pour ${patient.fullName}`
+          : `Relance ${step.channel} envoyée à ${patient.fullName}`,
+      notify: true,
+    };
+  });
+}
+
 async function main(): Promise<void> {
   // Idempotency: wipe relations then rows so `db:seed` is safe to re-run.
   await prisma.actionLog.deleteMany();
@@ -548,16 +571,33 @@ async function main(): Promise<void> {
     pushStory(patient, j7.id, inProgressStory(patient, J7_JOURNEY));
   }
 
-  // --- Workflow SMS-first: 4 in-progress patients. ---
+  // Completed journeys live firmly in the past (full journey, all sent, no
+  // pending), so the dashboard shows finished patients in every workflow.
+  const completedAge = (): number => faker.number.int({ min: 18, max: 25 });
+
+  // --- Workflow SMS-first: 4 in-progress + 2 completed patients. ---
   for (let i = 0; i < 4; i++) {
     const patient = makePatient();
     pushStory(patient, smsFirst.id, inProgressStory(patient, SMS_FIRST_JOURNEY));
   }
+  for (let i = 0; i < 2; i++) {
+    const patient = makePatient();
+    pushStory(patient, smsFirst.id, completedStory(patient, SMS_FIRST_JOURNEY), completedAge());
+  }
 
-  // --- Workflow WhatsApp express: 4 in-progress patients. ---
+  // --- Workflow WhatsApp express: 4 in-progress + 2 completed patients. ---
   for (let i = 0; i < 4; i++) {
     const patient = makePatient();
     pushStory(patient, whatsappExpress.id, inProgressStory(patient, WHATSAPP_JOURNEY));
+  }
+  for (let i = 0; i < 2; i++) {
+    const patient = makePatient();
+    pushStory(
+      patient,
+      whatsappExpress.id,
+      completedStory(patient, WHATSAPP_JOURNEY),
+      completedAge(),
+    );
   }
 
   await prisma.actionLog.createMany({ data: logs });
@@ -580,9 +620,15 @@ async function main(): Promise<void> {
   const maxTime = (dates: Date[]): string =>
     dates.length ? fmt(new Date(Math.max(...dates.map((d) => d.getTime())))) : '—';
 
+  // A patient with a pending log is still in progress; the rest are done/blocked.
+  const patientsWithPending = new Set(pending.map((log) => log.patientId));
+  const inProgressCount = patientsWithPending.size;
+  const finishedCount = patientCount - inProgressCount;
+
   console.log(
     `Seed terminé : ${workflowCount} workflows, ${patientCount} patients, ${logCount} action logs.`,
   );
+  console.log(`  • ${inProgressCount} patients en cours, ${finishedCount} terminés ou bloqués.`);
   console.log(
     `  • ${past.length} logs passés (sent/failed/skipped) du ${minTime(pastDates)} au ${maxTime(pastDates)} — tous dans le passé : ${pastInPast ? 'OK' : 'KO'}`,
   );
