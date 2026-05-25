@@ -199,4 +199,25 @@ describe('useWorkflowEditor', () => {
     expect(email && 'selected' in email).toBe(false);
     expect(serialized.viewport).toEqual({ x: 10, y: 20, zoom: 1.5 });
   });
+
+  it('serializeForDirtyCheck ignores viewport changes (pan/zoom is not a dirty edit)', () => {
+    const { result } = renderHook(() => useWorkflowEditor(sampleWorkflow()));
+    const before = JSON.stringify(result.current.serializeForDirtyCheck());
+    act(() => result.current.setViewport({ x: 999, y: -42, zoom: 3 }));
+    const after = JSON.stringify(result.current.serializeForDirtyCheck());
+    expect(after).toEqual(before);
+    // The snapshot carries no viewport at all.
+    expect(result.current.serializeForDirtyCheck()).not.toHaveProperty('viewport');
+  });
+
+  it('serializeForDirtyCheck reflects a node or edge edit (real dirty change)', () => {
+    const { result } = renderHook(() => useWorkflowEditor(sampleWorkflow()));
+    const before = JSON.stringify(result.current.serializeForDirtyCheck());
+    act(() => result.current.updateNodeData('m', { content: 'Texte modifié' }));
+    expect(JSON.stringify(result.current.serializeForDirtyCheck())).not.toEqual(before);
+
+    const afterNodeEdit = JSON.stringify(result.current.serializeForDirtyCheck());
+    act(() => result.current.removeEdge('s-m'));
+    expect(JSON.stringify(result.current.serializeForDirtyCheck())).not.toEqual(afterNodeEdit);
+  });
 });

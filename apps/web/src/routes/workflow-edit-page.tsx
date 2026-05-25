@@ -55,21 +55,23 @@ export function WorkflowEditPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [forceSaveOpen, setForceSaveOpen] = useState(false);
 
-  // Dirty tracking (I-07): compare a normalized snapshot of the persisted state
-  // (graph + settings) against the last saved baseline. `serialize()` strips
-  // React Flow's transient fields (selected, dragging, measured…), so selecting
-  // or dragging a node alone never marks the editor dirty — only real edits do.
+  // Dirty tracking (I-07/I-08): compare a normalized snapshot of the persisted
+  // state against the last saved baseline. `serializeForDirtyCheck()` strips
+  // React Flow's transient fields (selected, dragging, measured…) *and* the
+  // viewport, so neither selecting/dragging a node nor panning/zooming the
+  // canvas marks the editor dirty — only real edits to nodes, edges or settings.
   const [baseline, setBaseline] = useState<string | null>(null);
   const snapshot = useMemo<string | null>(() => {
     try {
-      return JSON.stringify({ graph: editor.serialize(), settings: editor.settings });
+      return JSON.stringify(editor.serializeForDirtyCheck());
     } catch {
-      // An in-progress, schema-invalid graph can make serialize() throw; treat
+      // An in-progress, schema-invalid graph can make serialization throw; treat
       // that as "unknown" rather than crashing the editor.
       return null;
     }
     // `editor` methods are stable; recompute only when the underlying state moves.
-  }, [editor.nodes, editor.edges, editor.viewport, editor.settings]);
+    // Viewport is intentionally absent — it never affects the dirty state.
+  }, [editor.nodes, editor.edges, editor.settings]);
 
   // Capture the freshly-loaded state as the clean baseline, exactly once.
   useEffect(() => {
@@ -139,7 +141,7 @@ export function WorkflowEditPage() {
       const graph = editor.serialize();
       await updateWorkflow(id, { graph, settings: editor.settings });
       // Rebaseline to exactly what we persisted → the editor is clean again.
-      setBaseline(JSON.stringify({ graph, settings: editor.settings }));
+      setBaseline(JSON.stringify(editor.serializeForDirtyCheck()));
       const warningCount = validation.warnings.length;
       toast.success(
         warningCount > 0
@@ -208,8 +210,12 @@ export function WorkflowEditPage() {
         await updateWorkflow(id, { settings: { notificationEmail: email } });
         // Settings are now persisted; fold them into the baseline (the graph is
         // unchanged) so this quick-save doesn't leave the editor looking dirty.
+        // `updateSettings` above is async, so override settings explicitly.
         setBaseline(
-          JSON.stringify({ graph: editor.serialize(), settings: { notificationEmail: email } }),
+          JSON.stringify({
+            ...editor.serializeForDirtyCheck(),
+            settings: { notificationEmail: email },
+          }),
         );
         toast.success('Réglages enregistrés');
       } catch (error) {

@@ -38,6 +38,18 @@ export type AppNode = Node<AppNodeData>;
 /** React Flow edge (the canonical `EdgeSchema` is a structural subset). */
 export type AppEdge = Edge;
 
+/**
+ * Normalized snapshot used to detect unsaved changes (I-08). It deliberately
+ * omits the viewport: panning or zooming the canvas is a view-only gesture, not
+ * a business edit, so it must never flag the editor dirty. `serialize()` keeps
+ * the viewport because the save *does* persist the preferred camera position.
+ */
+export interface DirtyCheckSnapshot {
+  nodes: WorkflowGraph['nodes'];
+  edges: WorkflowGraph['edges'];
+  settings: WorkflowSettings;
+}
+
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1 };
 const DEFAULT_SETTINGS: WorkflowSettings = { notificationEmail: '' };
 
@@ -85,6 +97,7 @@ export interface UseWorkflowEditor {
   onEdgesChange: (changes: EdgeChange<AppEdge>[]) => void;
   setFromGraph: (graph: WorkflowGraph) => void;
   serialize: () => WorkflowGraph;
+  serializeForDirtyCheck: () => DirtyCheckSnapshot;
 }
 
 export function useWorkflowEditor(initial?: Workflow): UseWorkflowEditor {
@@ -196,6 +209,13 @@ export function useWorkflowEditor(initial?: Workflow): UseWorkflowEditor {
     [nodes, edges, viewport],
   );
 
+  const serializeForDirtyCheck = useCallback((): DirtyCheckSnapshot => {
+    // Reuse the same Zod normalization (drops transient fields) but discard the
+    // viewport: only nodes, edges and settings count as real, persisted edits.
+    const normalized = WorkflowGraphSchema.parse({ nodes, edges, viewport });
+    return { nodes: normalized.nodes, edges: normalized.edges, settings };
+  }, [nodes, edges, viewport, settings]);
+
   return {
     nodes,
     edges,
@@ -213,5 +233,6 @@ export function useWorkflowEditor(initial?: Workflow): UseWorkflowEditor {
     onEdgesChange,
     setFromGraph,
     serialize,
+    serializeForDirtyCheck,
   };
 }
