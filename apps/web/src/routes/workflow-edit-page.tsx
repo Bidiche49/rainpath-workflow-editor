@@ -27,6 +27,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
 import { NodeSidePanel } from '@/features/editor/components/NodeSidePanel';
 import { SaveButton } from '@/features/editor/components/SaveButton';
 import { UnsavedChangesGuard } from '@/features/editor/components/UnsavedChangesGuard';
@@ -51,6 +52,7 @@ export function WorkflowEditPage() {
 
   const [status, setStatus] = useState<LoadStatus>('loading');
   const [workflowName, setWorkflowName] = useState('');
+  const [workflowDescription, setWorkflowDescription] = useState('');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [forceSaveOpen, setForceSaveOpen] = useState(false);
@@ -117,6 +119,7 @@ export function WorkflowEditPage() {
       const workflow = await getWorkflow(id);
       editor.init(workflow);
       setWorkflowName(workflow.name);
+      setWorkflowDescription(workflow.description ?? '');
       setStatus('ready');
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
@@ -202,15 +205,18 @@ export function WorkflowEditPage() {
   );
 
   const handleSettingsSave = useCallback(
-    async (email: string) => {
+    async ({ email, description }: { email: string; description: string }) => {
       if (!id) return;
       editor.updateSettings({ notificationEmail: email });
+      setWorkflowDescription(description);
       setSettingsOpen(false);
       try {
-        await updateWorkflow(id, { settings: { notificationEmail: email } });
+        await updateWorkflow(id, { description, settings: { notificationEmail: email } });
         // Settings are now persisted; fold them into the baseline (the graph is
         // unchanged) so this quick-save doesn't leave the editor looking dirty.
         // `updateSettings` above is async, so override settings explicitly.
+        // Description is a top-level field (like the name), not part of the
+        // graph dirty-check, so it needs no baseline handling.
         setBaseline(
           JSON.stringify({
             ...editor.serializeForDirtyCheck(),
@@ -262,7 +268,17 @@ export function WorkflowEditPage() {
           <ChevronLeft className="h-4 w-4" />
         </Button>
 
-        <InlineNameEditor name={workflowName} onCommit={handleRenameCommit} />
+        <div className="flex min-w-0 flex-col">
+          <InlineNameEditor name={workflowName} onCommit={handleRenameCommit} />
+          {workflowDescription && (
+            <span
+              className="line-clamp-1 px-2 text-sm text-muted-foreground"
+              title={workflowDescription}
+            >
+              {workflowDescription}
+            </span>
+          )}
+        </div>
 
         <div className="ml-auto flex items-center gap-2">
           <Button
@@ -315,6 +331,7 @@ export function WorkflowEditPage() {
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         initialEmail={editor.settings.notificationEmail}
+        initialDescription={workflowDescription}
         onSave={handleSettingsSave}
       />
 
@@ -459,21 +476,29 @@ interface WorkflowSettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialEmail: string;
-  onSave: (email: string) => void;
+  initialDescription: string;
+  onSave: (values: { email: string; description: string }) => void;
 }
+
+const DESCRIPTION_MAX = 500;
 
 function WorkflowSettingsDialog({
   open,
   onOpenChange,
   initialEmail,
+  initialDescription,
   onSave,
 }: WorkflowSettingsDialogProps) {
   const [email, setEmail] = useState(initialEmail);
+  const [description, setDescription] = useState(initialDescription);
 
-  // Re-sync the field whenever the dialog (re)opens.
+  // Re-sync the fields whenever the dialog (re)opens.
   useEffect(() => {
-    if (open) setEmail(initialEmail);
-  }, [open, initialEmail]);
+    if (open) {
+      setEmail(initialEmail);
+      setDescription(initialDescription);
+    }
+  }, [open, initialEmail, initialDescription]);
 
   const isValid = emailSchema.safeParse(email.trim()).success;
 
@@ -486,6 +511,21 @@ function WorkflowSettingsDialog({
             Adresse du secrétariat notifiée à chaque action (sauf surcharge par étape).
           </DialogDescription>
         </DialogHeader>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="workflow-description">Description</Label>
+          <Textarea
+            id="workflow-description"
+            rows={3}
+            maxLength={DESCRIPTION_MAX}
+            value={description}
+            placeholder="Décrivez l'objectif de ce workflow (optionnel)"
+            onChange={(e) => setDescription(e.target.value)}
+          />
+          <p className="text-right text-[12px] text-muted-foreground">
+            {description.length}/{DESCRIPTION_MAX}
+          </p>
+        </div>
 
         <div className="space-y-1.5">
           <Label htmlFor="notification-email">Email du secrétariat</Label>
@@ -506,7 +546,10 @@ function WorkflowSettingsDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Annuler
           </Button>
-          <Button disabled={!isValid} onClick={() => onSave(email.trim())}>
+          <Button
+            disabled={!isValid}
+            onClick={() => onSave({ email: email.trim(), description: description.trim() })}
+          >
             Enregistrer
           </Button>
         </DialogFooter>

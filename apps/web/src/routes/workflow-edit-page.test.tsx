@@ -142,10 +142,36 @@ describe('WorkflowEditPage', () => {
 
     await waitFor(() =>
       expect(updateWorkflow).toHaveBeenCalledWith('wf_1', {
+        description: '',
         settings: { notificationEmail: 'nouvelle@labo.fr' },
       }),
     );
     expect(toastSuccess).toHaveBeenCalledWith('Réglages enregistrés');
+  });
+
+  it('persists an edited description from the settings dialog', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Réglages du workflow' }));
+
+    const textarea = await screen.findByLabelText('Description');
+    fireEvent.change(textarea, { target: { value: 'Relance après J+7 sans réponse' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enregistrer' }));
+
+    await waitFor(() =>
+      expect(updateWorkflow).toHaveBeenCalledWith('wf_1', {
+        description: 'Relance après J+7 sans réponse',
+        settings: { notificationEmail: 'secretariat@labo.fr' },
+      }),
+    );
+  });
+
+  it('renders the description Textarea seeded with the workflow description', async () => {
+    getWorkflow.mockResolvedValue({ ...cleanGraph, description: 'Parcours standard du labo' });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Réglages du workflow' }));
+
+    const textarea = await screen.findByLabelText('Description');
+    expect(textarea).toHaveValue('Parcours standard du labo');
   });
 
   it('commits an inline rename', async () => {
