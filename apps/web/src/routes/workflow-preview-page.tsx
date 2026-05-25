@@ -114,24 +114,46 @@ export function WorkflowPreviewPage() {
     return last ? last.nodeId : startNodeId;
   }, [logsAsc, startNodeId]);
 
+  // Edges the patient actually traversed (future paths + dead branches excluded).
+  const activeEdgeIds = useMemo(
+    () => (workflow ? computeActiveEdges(workflow.graph, logsAsc) : new Set<string>()),
+    [workflow, logsAsc],
+  );
+
+  // Nodes on the traversed route: every endpoint of an active edge, plus the
+  // current position (covers a fresh patient still sitting on Start).
+  const activeNodeIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!workflow) return ids;
+    for (const edge of workflow.graph.edges) {
+      if (activeEdgeIds.has(edge.id)) {
+        ids.add(edge.source);
+        ids.add(edge.target);
+      }
+    }
+    if (currentNodeId) ids.add(currentNodeId);
+    return ids;
+  }, [workflow, activeEdgeIds, currentNodeId]);
+
+  // Lightly dim the nodes off the traversed route (not yet reached, or on a
+  // condition branch that wasn't taken) so the real path stands out while they
+  // all stay clearly visible (I-08 FIX 4).
   const previewNodes = useMemo<AppNode[]>(() => {
     if (!workflow) return [];
     const statuses = computeNodeStatuses(logsAsc);
-    return workflow.graph.nodes.map((node) => ({
-      ...node,
-      data: { ...node.data, status: statuses.get(node.id) },
-    })) as AppNode[];
-  }, [workflow, logsAsc]);
+    return workflow.graph.nodes.map((node) => {
+      const next = { ...node, data: { ...node.data, status: statuses.get(node.id) } };
+      return activeNodeIds.has(node.id) ? next : { ...next, style: { opacity: 0.5 } };
+    }) as AppNode[];
+  }, [workflow, logsAsc, activeNodeIds]);
 
-  // Dim every edge the patient did not traverse (future paths + dead branches),
-  // so the route actually taken stands out in the read-only preview (I-08 FIX 4).
+  // Dim every edge the patient did not traverse, more strongly than the nodes.
   const previewEdges = useMemo<AppEdge[]>(() => {
     if (!workflow) return [];
-    const activeEdgeIds = computeActiveEdges(workflow.graph, logsAsc);
     return workflow.graph.edges.map((edge) =>
       activeEdgeIds.has(edge.id) ? edge : { ...edge, style: { opacity: 0.25 } },
     );
-  }, [workflow, logsAsc]);
+  }, [workflow, activeEdgeIds]);
 
   const nextStep = useMemo(
     () => (workflow ? computeNextStep(workflow.graph, currentNodeId) : { kind: 'none' as const }),
