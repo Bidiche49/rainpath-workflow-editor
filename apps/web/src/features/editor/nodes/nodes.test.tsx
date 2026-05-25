@@ -42,9 +42,10 @@ describe('custom nodes', () => {
     expect(screen.getByText('Fin')).toBeInTheDocument();
   });
 
-  it('uses a custom label from data when present', () => {
+  it('shows the channel name as title, ignoring any data.label', () => {
     renderNode(<EmailNode {...nodeProps({ label: 'Relance J+7', notifySecretariat: true })} />);
-    expect(screen.getByText('Relance J+7')).toBeInTheDocument();
+    expect(screen.getByText('Email')).toBeInTheDocument();
+    expect(screen.queryByText('Relance J+7')).not.toBeInTheDocument();
   });
 
   it('shows the discreet Bell when notifySecretariat is on and no override', () => {
@@ -74,9 +75,10 @@ describe('custom nodes', () => {
     expect(screen.getByText('Email')).toBeInTheDocument();
   });
 
-  it('summarises the wait delay in the label', () => {
+  it('shows "Attente" as title and the localized delay as subtitle', () => {
     renderNode(<WaitNode {...nodeProps({ delay: { value: 7, unit: 'days' } })} />);
-    expect(screen.getByText('Attendre 7 days')).toBeInTheDocument();
+    expect(screen.getByText('Attente')).toBeInTheDocument();
+    expect(screen.getByText('7 jours')).toBeInTheDocument();
   });
 
   it('falls back to the bare "Attente" label when no delay is set', () => {
@@ -100,7 +102,7 @@ describe('custom nodes', () => {
   });
 
   it('renders the condition node with Oui / Non branch labels', () => {
-    renderNode(<ConditionNode {...nodeProps({ label: 'Email ouvert ?' })} />);
+    renderNode(<ConditionNode {...nodeProps({ condition: 'Email ouvert ?' })} />);
     expect(screen.getByText('Email ouvert ?')).toBeInTheDocument();
     expect(screen.getByText('Oui')).toBeInTheDocument();
     expect(screen.getByText('Non')).toBeInTheDocument();
@@ -146,5 +148,30 @@ describe('custom nodes', () => {
     const badge = screen.getByTestId('validation-warning');
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveClass('text-amber-600');
+  });
+
+  // ── Title / subtitle hierarchy (I-08 FIX 3) ────────────────────────────────
+
+  it('shows the static "Branche conditionnelle" subtitle on a condition node', () => {
+    renderNode(<ConditionNode {...nodeProps({ condition: 'Email ouvert ?' })} />);
+    expect(screen.getByText('Email ouvert ?')).toBeInTheDocument();
+    expect(screen.getByText('Branche conditionnelle')).toBeInTheDocument();
+  });
+
+  it('shows the localized French delay as a wait node subtitle', () => {
+    renderNode(<WaitNode {...nodeProps({ delay: { value: 1, unit: 'hours' } })} />);
+    expect(screen.getByText('Attente')).toBeInTheDocument();
+    expect(screen.getByText('1 heure')).toBeInTheDocument();
+  });
+
+  it('truncates a long channel message preview to 60 chars + ellipsis', () => {
+    const long = 'A'.repeat(80);
+    renderNode(<EmailNode {...nodeProps({ content: long, notifySecretariat: true })} />);
+    expect(screen.getByText(`${'A'.repeat(60)}…`)).toBeInTheDocument();
+  });
+
+  it('shows "Aucun message" when a channel node has no content', () => {
+    renderNode(<SmsNode {...nodeProps({ notifySecretariat: true })} />);
+    expect(screen.getByText('Aucun message')).toBeInTheDocument();
   });
 });

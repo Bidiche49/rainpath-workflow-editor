@@ -218,6 +218,8 @@ export interface NodeShellProps {
   type: NodeType;
   icon: LucideIcon;
   label: string;
+  /** Secondary line under the label (channel preview, formatted delay…). */
+  subtitle?: string | undefined;
   /** Canonical node id — enables the quick-delete trash affordance. */
   nodeId?: string | undefined;
   selected?: boolean | undefined;
@@ -243,6 +245,7 @@ function NodeShellComponent({
   type,
   icon: Icon,
   label,
+  subtitle,
   nodeId,
   selected,
   status,
@@ -285,7 +288,17 @@ function NodeShellComponent({
           <Icon size={16} />
           {notify && <NotifBadge {...notify} />}
         </span>
-        <span className={cn('text-[13px] font-medium', styles.text)}>{label}</span>
+        <span className="flex min-w-0 flex-col">
+          <span className={cn('text-[13px] font-medium', styles.text)}>{label}</span>
+          {subtitle && (
+            <span
+              data-testid="node-subtitle"
+              className="line-clamp-1 text-xs text-muted-foreground"
+            >
+              {subtitle}
+            </span>
+          )}
+        </span>
       </div>
 
       {status && (

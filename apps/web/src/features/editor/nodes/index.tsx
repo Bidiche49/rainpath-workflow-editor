@@ -13,9 +13,18 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-import type { ChannelNodeData, NodeStatus } from '@rainpath/schemas';
+import type { ChannelNodeData, Delay, NodeStatus } from '@rainpath/schemas';
+
+import { formatDelay } from '@/lib/format-delay';
 
 import { NodeShell, StyledHandle, type NodeValidation, type NotifyIndicator } from './node-shell';
+
+/** Channel message preview: first 60 chars (ellipsised) or a clear empty state. */
+function contentPreview(content?: string): string {
+  const trimmed = content?.trim();
+  if (!trimmed) return 'Aucun message';
+  return trimmed.length > 60 ? `${trimmed.slice(0, 60)}…` : trimmed;
+}
 
 /** Common `data` fields every node carries (label + preview status + validation). */
 interface BaseData {
@@ -89,7 +98,8 @@ function ChannelNode({
     <NodeShell
       type={type}
       icon={icon}
-      label={d.label ?? CHANNEL_LABELS[type]}
+      label={CHANNEL_LABELS[type]}
+      subtitle={contentPreview(d.content)}
       nodeId={id}
       selected={selected}
       status={status}
@@ -115,17 +125,17 @@ function LetterNodeComponent(props: NodeProps) {
 // ── Wait ─────────────────────────────────────────────────────────────────────
 
 interface WaitData extends BaseData {
-  delay?: { value: number; unit: string };
+  delay?: Delay;
 }
 
 function WaitNodeComponent({ id, data, selected }: NodeProps) {
   const d = data as WaitData;
-  const summary = d.delay ? `${d.delay.value} ${d.delay.unit}` : undefined;
   return (
     <NodeShell
       type="wait"
       icon={Clock}
-      label={d.label ?? (summary ? `Attendre ${summary}` : 'Attente')}
+      label="Attente"
+      subtitle={d.delay ? formatDelay(d.delay) : undefined}
       nodeId={id}
       selected={selected}
       status={d.status}
@@ -138,11 +148,13 @@ function WaitNodeComponent({ id, data, selected }: NodeProps) {
 
 function ConditionNodeComponent({ id, data, selected }: NodeProps) {
   const d = data as BaseData & { condition?: string };
+  const question = d.condition?.trim();
   return (
     <NodeShell
       type="condition"
       icon={GitBranch}
-      label={d.label ?? d.condition ?? 'Condition'}
+      label={question ? question : 'Condition'}
+      subtitle="Branche conditionnelle"
       nodeId={id}
       selected={selected}
       status={d.status}
