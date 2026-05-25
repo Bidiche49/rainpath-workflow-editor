@@ -1,6 +1,6 @@
 import { memo } from 'react';
 
-import { Handle, Position, type NodeProps, type NodeTypes } from '@xyflow/react';
+import { Position, type NodeProps, type NodeTypes } from '@xyflow/react';
 import {
   Check,
   Clock,
@@ -15,7 +15,7 @@ import {
 
 import type { ChannelNodeData, NodeStatus } from '@rainpath/schemas';
 
-import { NodeShell, type NodeValidation, type NotifyIndicator } from './node-shell';
+import { NodeShell, StyledHandle, type NodeValidation, type NotifyIndicator } from './node-shell';
 
 /** Common `data` fields every node carries (label + preview status + validation). */
 interface BaseData {
@@ -149,12 +149,32 @@ function ConditionNodeComponent({ id, data, selected }: NodeProps) {
       validation={d.validation}
       hasSource={false}
     >
-      <Handle id="yes" type="source" position={Position.Bottom} style={{ left: '30%' }} />
-      <Handle id="no" type="source" position={Position.Bottom} style={{ left: '70%' }} />
-      <div className="pointer-events-none mt-2 flex justify-between px-1 text-xs text-muted-foreground">
-        <span>Oui</span>
-        <span>Non</span>
-      </div>
+      {/* Branch handles and labels both use the condition's violet (node
+          identity); the Oui/Non wording carries the yes/no meaning. */}
+      <StyledHandle
+        nodeId={id}
+        handleType="source"
+        position={Position.Bottom}
+        id="yes"
+        borderClass="border-channel-condition-500"
+        fillClass="bg-channel-condition-500"
+        style={{ left: '30%' }}
+      />
+      <StyledHandle
+        nodeId={id}
+        handleType="source"
+        position={Position.Bottom}
+        id="no"
+        borderClass="border-channel-condition-500"
+        fillClass="bg-channel-condition-500"
+        style={{ left: '70%' }}
+      />
+      <span className="pointer-events-none absolute -bottom-5 left-[30%] -translate-x-1/2 text-xs font-semibold text-channel-condition-700">
+        Oui
+      </span>
+      <span className="pointer-events-none absolute -bottom-5 left-[70%] -translate-x-1/2 text-xs font-semibold text-channel-condition-700">
+        Non
+      </span>
     </NodeShell>
   );
 }

@@ -1,6 +1,6 @@
-import { memo, type ReactNode } from 'react';
+import { memo, type CSSProperties, type ReactNode } from 'react';
 
-import { Handle, Position } from '@xyflow/react';
+import { Handle, Position, useStore, type HandleType } from '@xyflow/react';
 import { AlertCircle, AlertTriangle, Bell, Trash2, type LucideIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -143,6 +143,77 @@ function TrashButton({ nodeId }: { nodeId: string }) {
   );
 }
 
+/**
+ * Whether a given handle currently has at least one edge attached. Reads the
+ * live edge list from React Flow's store with a boolean selector, so a node
+ * only re-renders when its own connection state flips (not on every edge edit).
+ */
+function useHandleConnected(
+  nodeId: string | undefined,
+  handleType: HandleType,
+  handleId?: string,
+): boolean {
+  return useStore((store) =>
+    nodeId === undefined
+      ? false
+      : store.edges.some((edge) =>
+          handleType === 'source'
+            ? edge.source === nodeId &&
+              (handleId === undefined || (edge.sourceHandle ?? undefined) === handleId)
+            : edge.target === nodeId &&
+              (handleId === undefined || (edge.targetHandle ?? undefined) === handleId),
+        ),
+  );
+}
+
+export interface StyledHandleProps {
+  nodeId: string | undefined;
+  handleType: HandleType;
+  position: Position;
+  /** Branch id for condition outputs ("yes"/"no"); omitted for linear handles. */
+  id?: string;
+  /** Border colour class (channel-500, or emerald/red for condition branches). */
+  borderClass: string;
+  /** Fill class applied once the handle is connected. */
+  fillClass: string;
+  style?: CSSProperties;
+}
+
+/**
+ * Larger (16px), hover-reactive React Flow handle (I-07 batch 3). It fills with
+ * its channel/branch colour once connected, and stays empty (white) otherwise.
+ *
+ * The translate classes reproduce React Flow's own positioning transform so the
+ * `hover:scale-125` (which also writes `transform`) grows the dot in place
+ * instead of knocking it off its anchor.
+ */
+export function StyledHandle({
+  nodeId,
+  handleType,
+  position,
+  id,
+  borderClass,
+  fillClass,
+  style,
+}: StyledHandleProps) {
+  const connected = useHandleConnected(nodeId, handleType, id);
+  const posTranslate = position === Position.Top ? '-translate-y-1/2' : 'translate-y-1/2';
+  return (
+    <Handle
+      type={handleType}
+      position={position}
+      id={id}
+      style={style}
+      className={cn(
+        'h-4 w-4 -translate-x-1/2 rounded-full border-2 transition-transform duration-150 hover:scale-125',
+        posTranslate,
+        borderClass,
+        connected ? fillClass : 'bg-white',
+      )}
+    />
+  );
+}
+
 export interface NodeShellProps {
   type: NodeType;
   icon: LucideIcon;
@@ -199,7 +270,15 @@ function NodeShellComponent({
     >
       {showTrash && <TrashButton nodeId={nodeId} />}
 
-      {hasTarget && <Handle type="target" position={Position.Top} />}
+      {hasTarget && (
+        <StyledHandle
+          nodeId={nodeId}
+          handleType="target"
+          position={Position.Top}
+          borderClass={styles.solidBorder}
+          fillClass={styles.chip}
+        />
+      )}
 
       <div className="flex items-center gap-2.5">
         <span className={cn('relative rounded-lg p-2 text-white', styles.chip)}>
@@ -218,7 +297,15 @@ function NodeShellComponent({
 
       {validation && <ValidationBadge {...validation} />}
 
-      {hasSource && <Handle type="source" position={Position.Bottom} />}
+      {hasSource && (
+        <StyledHandle
+          nodeId={nodeId}
+          handleType="source"
+          position={Position.Bottom}
+          borderClass={styles.solidBorder}
+          fillClass={styles.chip}
+        />
+      )}
 
       {children}
     </div>

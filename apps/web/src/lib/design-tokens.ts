@@ -22,6 +22,8 @@ export interface ChannelStyles {
   ring: string;
   /** Solid -500 fill for the icon chip/pastille (paired with `text-white`). */
   chip: string;
+  /** Solid -500 border, paired with `chip` for connected handles (B-03/I-07). */
+  solidBorder: string;
 }
 
 /** Badge classes (tinted fill + solid text + subtle border) for a log status. */
@@ -68,6 +70,7 @@ export function getChannelStyles(channel: NodeType): ChannelStyles {
         text: 'text-channel-start-700',
         ring: 'ring-channel-start-500',
         chip: 'bg-channel-start-500',
+        solidBorder: 'border-channel-start-500',
       };
     case 'email':
       return {
@@ -76,6 +79,7 @@ export function getChannelStyles(channel: NodeType): ChannelStyles {
         text: 'text-channel-email-700',
         ring: 'ring-channel-email-500',
         chip: 'bg-channel-email-500',
+        solidBorder: 'border-channel-email-500',
       };
     case 'sms':
       return {
@@ -84,6 +88,7 @@ export function getChannelStyles(channel: NodeType): ChannelStyles {
         text: 'text-channel-sms-700',
         ring: 'ring-channel-sms-500',
         chip: 'bg-channel-sms-500',
+        solidBorder: 'border-channel-sms-500',
       };
     case 'whatsapp':
       return {
@@ -92,6 +97,7 @@ export function getChannelStyles(channel: NodeType): ChannelStyles {
         text: 'text-channel-whatsapp-700',
         ring: 'ring-channel-whatsapp-500',
         chip: 'bg-channel-whatsapp-500',
+        solidBorder: 'border-channel-whatsapp-500',
       };
     case 'letter':
       return {
@@ -100,6 +106,7 @@ export function getChannelStyles(channel: NodeType): ChannelStyles {
         text: 'text-channel-letter-700',
         ring: 'ring-channel-letter-500',
         chip: 'bg-channel-letter-500',
+        solidBorder: 'border-channel-letter-500',
       };
     case 'wait':
       return {
@@ -108,6 +115,7 @@ export function getChannelStyles(channel: NodeType): ChannelStyles {
         text: 'text-channel-wait-700',
         ring: 'ring-channel-wait-500',
         chip: 'bg-channel-wait-500',
+        solidBorder: 'border-channel-wait-500',
       };
     case 'condition':
       return {
@@ -116,6 +124,7 @@ export function getChannelStyles(channel: NodeType): ChannelStyles {
         text: 'text-channel-condition-700',
         ring: 'ring-channel-condition-500',
         chip: 'bg-channel-condition-500',
+        solidBorder: 'border-channel-condition-500',
       };
     case 'end':
       return {
@@ -124,6 +133,7 @@ export function getChannelStyles(channel: NodeType): ChannelStyles {
         text: 'text-channel-end-700',
         ring: 'ring-channel-end-500',
         chip: 'bg-channel-end-500',
+        solidBorder: 'border-channel-end-500',
       };
     default:
       return assertNever(channel);
