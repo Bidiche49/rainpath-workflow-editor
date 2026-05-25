@@ -18,6 +18,7 @@ import '@xyflow/react/dist/style.css';
 import { NODE_TYPES, type NodeType, type Position, type Viewport } from '@rainpath/schemas';
 
 import type { AppEdge, AppNode } from '../hooks/useWorkflowEditor';
+import { edgeTypes } from '../edges';
 import { applyAutoLayout } from '../lib/auto-layout';
 import { DND_NODE_TYPE } from '../lib/node-catalog';
 import { nodeTypes } from '../nodes';
@@ -67,8 +68,11 @@ function CanvasArea({
   const { screenToFlowPosition } = useReactFlow();
   const didLayout = useRef(false);
 
-  // Stable context value so node re-renders are driven by state, not identity.
-  const nodeActions = useMemo(() => ({ onRemoveNode, readOnly }), [onRemoveNode, readOnly]);
+  // Stable context value so node/edge re-renders are driven by state, not identity.
+  const nodeActions = useMemo(
+    () => ({ onRemoveNode, onRemoveEdge, readOnly }),
+    [onRemoveNode, onRemoveEdge, readOnly],
+  );
 
   useEffect(() => {
     if (didLayout.current || !autoLayoutOnMount || nodes.length === 0) return;
@@ -108,6 +112,7 @@ function CanvasArea({
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}

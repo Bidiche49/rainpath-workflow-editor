@@ -1,15 +1,16 @@
 import { createContext, useContext } from 'react';
 
 /**
- * Editor actions made available to custom nodes (I-07 batch 2).
+ * Editor actions made available to custom nodes and edges (I-07 batch 2).
  *
- * Custom nodes only receive React Flow's `NodeProps`, so the canvas exposes the
- * controlled-editor mutations they need (node deletion) through this context
- * rather than threading them as ad-hoc node `data`. `readOnly` mirrors the
- * canvas mode so nodes hide destructive affordances in the patient preview.
+ * Custom nodes/edges only receive React Flow's `NodeProps`/`EdgeProps`, so the
+ * canvas exposes the controlled-editor mutations they need (node/edge deletion)
+ * through this context rather than threading them as ad-hoc data. `readOnly`
+ * mirrors the canvas mode so they hide destructive affordances in the preview.
  */
 export interface NodeActions {
   onRemoveNode?: (id: string) => void;
+  onRemoveEdge?: (id: string) => void;
   readOnly?: boolean;
 }
 

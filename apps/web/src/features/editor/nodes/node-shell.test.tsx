@@ -25,9 +25,17 @@ describe('NodeShell trash affordance', () => {
     expect(screen.getByRole('button', { name: TRASH })).toHaveClass('group-hover:opacity-100');
   });
 
-  it('keeps the trash button visible while the node is selected', () => {
+  it('reveals the trash on hover only, not on selection', () => {
     renderShell({ selected: true }, { onRemoveNode: vi.fn() });
-    expect(screen.getByRole('button', { name: TRASH })).toHaveClass('opacity-100');
+    const trash = screen.getByRole('button', { name: TRASH });
+    // Hover-driven (group-hover) and never force-shown by selection.
+    expect(trash).toHaveClass('group-hover:opacity-100');
+    expect(trash).not.toHaveClass('opacity-100');
+  });
+
+  it('places the trash on the top-left so the badge never hides it', () => {
+    renderShell({}, { onRemoveNode: vi.fn() });
+    expect(screen.getByRole('button', { name: TRASH })).toHaveClass('-left-2');
   });
 
   it('hides the trash button in read-only (preview) mode', () => {
@@ -44,13 +52,13 @@ describe('NodeShell trash affordance', () => {
     expect(onRemoveNode).toHaveBeenCalledWith('n1');
   });
 
-  it('yields the corner to a validation badge (badge keeps priority)', () => {
+  it('coexists with a validation badge (trash left, badge right)', () => {
     renderShell(
       { validation: { type: 'error', message: 'Nœud orphelin' } },
       { onRemoveNode: vi.fn() },
     );
 
-    expect(screen.queryByRole('button', { name: TRASH })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: TRASH })).toBeInTheDocument();
     expect(screen.getByTestId('validation-error')).toBeInTheDocument();
   });
 });

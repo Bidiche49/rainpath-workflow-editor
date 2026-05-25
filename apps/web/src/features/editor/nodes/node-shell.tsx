@@ -112,10 +112,11 @@ function ValidationBadge({ type, message }: NodeValidation) {
 
 /**
  * Quick-delete affordance (I-07 batch 2): a trash button on the card's
- * top-right corner, revealed on hover or while the node is selected. Hidden in
- * read-only preview and when a validation badge already owns the same corner.
+ * top-left corner, revealed only on hover. It sits on the left so it never
+ * collides with the validation badge / notification pastille on the right.
+ * Hidden in read-only preview.
  */
-function TrashButton({ nodeId, selected }: { nodeId: string; selected?: boolean | undefined }) {
+function TrashButton({ nodeId }: { nodeId: string }) {
   const { onRemoveNode } = useNodeActions();
   return (
     <TooltipProvider>
@@ -127,10 +128,7 @@ function TrashButton({ nodeId, selected }: { nodeId: string; selected?: boolean 
             size="icon"
             aria-label="Supprimer ce nœud"
             // `nodrag` stops React Flow from starting a node drag on press.
-            className={cn(
-              'nodrag absolute -right-2 -top-2 z-10 h-7 w-7 rounded-full border bg-white opacity-0 shadow-sm transition-opacity duration-150 hover:border-red-300 hover:bg-red-50 hover:text-red-600 group-hover:opacity-100',
-              selected && 'opacity-100',
-            )}
+            className="nodrag absolute -left-2 -top-2 z-10 h-7 w-7 rounded-full border bg-white opacity-0 shadow-sm transition-opacity duration-150 hover:border-red-300 hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
             onClick={(event) => {
               event.stopPropagation();
               onRemoveNode?.(nodeId);
@@ -185,8 +183,8 @@ function NodeShellComponent({
 }: NodeShellProps) {
   const styles = getChannelStyles(type);
   const { onRemoveNode, readOnly } = useNodeActions();
-  // The validation badge owns the top-right corner; let it win over the trash.
-  const showTrash = !readOnly && !validation && onRemoveNode !== undefined && nodeId !== undefined;
+  // Trash lives on the top-left, the badge on the top-right — both can show.
+  const showTrash = !readOnly && onRemoveNode !== undefined && nodeId !== undefined;
   return (
     <div
       className={cn(
@@ -199,7 +197,7 @@ function NodeShellComponent({
         status === 'pending' && 'opacity-60',
       )}
     >
-      {showTrash && <TrashButton nodeId={nodeId} selected={selected} />}
+      {showTrash && <TrashButton nodeId={nodeId} />}
 
       {hasTarget && <Handle type="target" position={Position.Top} />}
 
