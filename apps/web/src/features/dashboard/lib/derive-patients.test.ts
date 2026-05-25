@@ -42,6 +42,11 @@ describe('patientDisplayName', () => {
   it('falls back to the raw id on an unexpected shape', () => {
     expect(patientDisplayName('anonymous')).toBe('Anonymous');
   });
+
+  it('falls back to the raw id when the slug has no usable parts', () => {
+    // No `pat_…` prefix → slug is the raw id; only dots → every part is empty.
+    expect(patientDisplayName('...')).toBe('...');
+  });
 });
 
 describe('derivePatients', () => {
@@ -90,6 +95,24 @@ describe('derivePatients', () => {
     );
     expect(row?.status).toBe('en_cours');
     expect(row?.currentNodeType).toBe('email');
+  });
+
+  it('labels an unknown workflow and falls back to the log channel for the node type', () => {
+    const [row] = derivePatients(
+      [log({ patientId: 'pat_u.u_0004', workflowId: 'wf_gone', channel: 'sms' })],
+      [workflow], // does not contain wf_gone
+    );
+    expect(row?.workflowName).toBe('Workflow inconnu');
+    // No graph to resolve the node id → currentNodeType comes from the channel.
+    expect(row?.currentNodeType).toBe('sms');
+  });
+
+  it('falls back to the log channel when the node id is missing from the graph', () => {
+    const [row] = derivePatients(
+      [log({ patientId: 'pat_v.v_0005', nodeId: 'deleted-node', channel: 'whatsapp' })],
+      [workflow],
+    );
+    expect(row?.currentNodeType).toBe('whatsapp');
   });
 });
 

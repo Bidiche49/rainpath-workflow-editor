@@ -123,6 +123,39 @@ describe('validateGraph — warnings', () => {
   });
 });
 
+describe('validateGraph — dead ends and overlapping issues', () => {
+  it('warns about a reachable, non-End node with no outgoing edge', () => {
+    // email is reachable (start→email) but has no successor and is not an End.
+    const result = validateGraph(
+      graph(
+        [node('s', 'start'), node('e', 'email'), node('end', 'end')],
+        [edge('s', 'e'), edge('s', 'end')],
+      ),
+    );
+    expect(codes(result.warnings)).toContain('dead-end');
+    expect(result.warningsByNodeId.has('e')).toBe(true);
+  });
+
+  it('accumulates multiple warnings on the same node id', () => {
+    // An orphan condition node (unreachable) with a single, handle-less branch:
+    // it triggers BOTH the orphan and condition-single-branch warnings, so
+    // groupByNodeId must merge them under the same id rather than overwrite.
+    const result = validateGraph(
+      graph(
+        [node('s', 'start'), node('end', 'end'), node('c', 'condition')],
+        [
+          edge('s', 'end'),
+          edge('c', 'end'), // dangling source handle (undefined) → counted as ''
+        ],
+      ),
+    );
+    const issuesForC = result.warningsByNodeId.get('c');
+    expect(issuesForC?.map((i) => i.code)).toEqual(
+      expect.arrayContaining(['orphan', 'condition-single-branch']),
+    );
+  });
+});
+
 describe('validateGraph — robustness', () => {
   it('ignores edges that dangle to a removed node', () => {
     const result = validateGraph(

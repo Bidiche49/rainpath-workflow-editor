@@ -55,6 +55,21 @@ describe('useKeyboardShortcuts', () => {
     expect(deselect).not.toHaveBeenCalled();
   });
 
+  it('ignores Delete while a contentEditable element is focused', () => {
+    const deleteSelected = vi.fn();
+    renderHook(() => useKeyboardShortcuts({ Delete: deleteSelected }));
+
+    const editable = document.createElement('div');
+    editable.contentEditable = 'true';
+    // jsdom does not derive isContentEditable from the attribute, so assert it.
+    Object.defineProperty(editable, 'isContentEditable', { value: true });
+    document.body.appendChild(editable);
+
+    press('Delete', {}, editable);
+
+    expect(deleteSelected).not.toHaveBeenCalled();
+  });
+
   it('removes the listener on unmount', () => {
     const save = vi.fn();
     const { unmount } = renderHook(() => useKeyboardShortcuts({ 'mod+s': save }));

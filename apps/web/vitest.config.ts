@@ -24,7 +24,18 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/**/*.test.{ts,tsx}', 'src/test/**', 'src/components/ui/**'],
+      exclude: [
+        'src/**/*.test.{ts,tsx}',
+        'src/test/**',
+        'src/components/ui/**',
+        // Vite entry point: bootstraps React onto #root, nothing to assert.
+        'src/main.tsx',
+        // Pure route table (path → element wiring) consumed by main.tsx; the
+        // pages it references are tested, the createBrowserRouter config is not.
+        'src/router.tsx',
+        // Ambient type declarations only — no runtime code.
+        'src/vite-env.d.ts',
+      ],
     },
   },
 });

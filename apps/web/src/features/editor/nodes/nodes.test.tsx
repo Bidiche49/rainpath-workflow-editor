@@ -122,4 +122,29 @@ describe('custom nodes', () => {
     renderNode(<EmailNode {...nodeProps({ notifySecretariat: true })} />);
     expect(screen.queryByTestId('status-dot')).not.toBeInTheDocument();
   });
+
+  it('renders the red error validation badge from data.validation', () => {
+    renderNode(
+      <EmailNode
+        {...nodeProps({
+          notifySecretariat: true,
+          validation: { type: 'error', message: 'Nœud orphelin' },
+        })}
+      />,
+    );
+    const badge = screen.getByTestId('validation-error');
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveClass('text-red-600');
+  });
+
+  it('renders the amber warning validation badge from data.validation', () => {
+    renderNode(
+      <WaitNode
+        {...nodeProps({ validation: { type: 'warning', message: 'Sans étape suivante' } })}
+      />,
+    );
+    const badge = screen.getByTestId('validation-warning');
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveClass('text-amber-600');
+  });
 });
