@@ -16,14 +16,28 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "db:reset": "echo \"[placeholder] db:reset — wired in F-05\"",
-    "db:seed": "echo \"[placeholder] db:seed — wired in F-05\""
+    "db:seed": "echo \"[placeholder] db:seed — wired in F-05\"",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,cjs,mjs}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,yaml,yml,css}": [
+      "prettier --write"
+    ]
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.0.1",
+    "@commitlint/config-conventional": "^21.0.1",
     "@eslint/js": "^9.39.4",
     "@types/node": "^20.19.41",
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^9.1.2",
     "globals": "^15.15.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.5",
     "prettier": "^3.8.3",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.4"
