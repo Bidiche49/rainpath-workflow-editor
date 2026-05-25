@@ -68,7 +68,8 @@ docs/
 ## Commandes
 
 - `pnpm dev` — front + back en parallèle
-- `pnpm test` — toutes les suites avec coverage
+- `pnpm test` — toutes les suites (sans coverage, rapide)
+- `pnpm test:cov` — toutes les suites avec coverage + seuils 85% (échoue sous le seuil)
 - `pnpm typecheck` — `tsc --noEmit` sur tout
 - `pnpm lint` — ESLint sur tout
 - `pnpm db:reset` — wipe SQLite + migrate + seed

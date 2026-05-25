@@ -71,6 +71,14 @@
       "!src/**/*.spec.ts"
     ],
     "coverageDirectory": "<rootDir>/coverage",
+    "coverageThreshold": {
+      "global": {
+        "lines": 85,
+        "branches": 85,
+        "functions": 85,
+        "statements": 85
+      }
+    },
     "testEnvironment": "node",
     "maxWorkers": 1,
     "setupFiles": [

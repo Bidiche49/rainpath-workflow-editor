@@ -12,6 +12,7 @@
     "dev": "pnpm build:schemas && concurrently -k -n api,web -c blue,green \"pnpm --filter api dev\" \"pnpm --filter web dev\"",
     "build": "pnpm build:schemas && pnpm --filter api build && pnpm --filter web build",
     "test": "pnpm build:schemas && pnpm -r test",
+    "test:cov": "pnpm build:schemas && pnpm -r test --coverage",
     "typecheck": "pnpm build:schemas && pnpm -r typecheck",
     "lint": "eslint .",
     "format": "prettier --write .",

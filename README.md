@@ -47,12 +47,15 @@ docs/
 ## Tests
 
 ```bash
-pnpm test                # toutes les suites avec coverage
+pnpm test                # toutes les suites (sans coverage, rapide)
+pnpm test:cov            # toutes les suites avec coverage + seuils 85%
 pnpm --filter web test   # uniquement le front
 pnpm --filter api test   # uniquement le back
 ```
 
-Cible de coverage : ≥ 85% global.
+Cible de coverage : ≥ 85% global, **verrouillée** par des seuils (`lines`,
+`branches`, `functions`, `statements`) dans `apps/web/vitest.config.ts` et la
+config Jest de `apps/api`. `pnpm test:cov` échoue si l'un d'eux passe sous 85%.
 
 ## Décisions clés
 

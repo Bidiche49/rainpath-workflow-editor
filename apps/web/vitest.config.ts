@@ -36,6 +36,12 @@ export default defineConfig({
         // Ambient type declarations only — no runtime code.
         'src/vite-env.d.ts',
       ],
+      thresholds: {
+        lines: 85,
+        branches: 85,
+        functions: 85,
+        statements: 85,
+      },
     },
   },
 });
