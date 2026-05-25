@@ -18,6 +18,29 @@ export function computeCurrentNodeId(logsAsc: ActionLog[]): string | null {
 }
 
 /**
+ * The node the patient has actually *reached* — the most recent **non-pending**
+ * log, or `startNodeId` when nothing has happened yet.
+ *
+ * A `pending` log is a *scheduled* action that hasn't occurred (the seed dates
+ * it in the future), so it must not be mistaken for a completed step: it is the
+ * next action to fire. The "Simulate next step" walk therefore advances from
+ * this frontier, not from the last (possibly still-scheduled) log — otherwise a
+ * patient sitting on a scheduled final action looks "done" and can never finish.
+ *
+ * `logsAsc` must be sorted ascending by `occurredAt`.
+ */
+export function computeFrontierNodeId(
+  logsAsc: ActionLog[],
+  startNodeId: string | null,
+): string | null {
+  for (let i = logsAsc.length - 1; i >= 0; i -= 1) {
+    const log = logsAsc[i];
+    if (log && log.status !== 'pending') return log.nodeId;
+  }
+  return startNodeId;
+}
+
+/**
  * Maps each visited node to its execution status (I-05):
  * - the last log's node → `current`;
  * - every other visited node → `done`;

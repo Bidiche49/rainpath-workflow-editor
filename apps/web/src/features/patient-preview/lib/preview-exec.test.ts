@@ -1,16 +1,21 @@
 import type { ActionLog, ChannelNodeType, WorkflowGraph } from '@rainpath/schemas';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { computeCurrentNodeId, computeNextStep, computeNodeStatuses } from './preview-exec';
+import {
+  computeCurrentNodeId,
+  computeFrontierNodeId,
+  computeNextStep,
+  computeNodeStatuses,
+} from './preview-exec';
 
-function log(nodeId: string, occurredAt: string): ActionLog {
+function log(nodeId: string, occurredAt: string, status: ActionLog['status'] = 'sent'): ActionLog {
   return {
     id: `log_${nodeId}_${occurredAt}`,
     patientId: 'pat_a.a_1111',
     workflowId: 'wf_1',
     nodeId,
     channel: 'email' as ChannelNodeType,
-    status: 'sent',
+    status,
     occurredAt: new Date(occurredAt),
   };
 }
@@ -51,6 +56,30 @@ describe('computeCurrentNodeId / computeNodeStatuses', () => {
   it('returns null / empty for a patient with no logs', () => {
     expect(computeCurrentNodeId([])).toBeNull();
     expect(computeNodeStatuses([]).size).toBe(0);
+  });
+});
+
+describe('computeFrontierNodeId', () => {
+  it('ignores a trailing pending (scheduled) log and returns the last reached node', () => {
+    // SMS + Email sent, then a Courrier scheduled in the future → frontier = email.
+    const logs = [
+      log('sms', '2026-05-10'),
+      log('email', '2026-05-20'),
+      log('courrier', '2026-06-01', 'pending'),
+    ];
+    expect(computeFrontierNodeId(logs, 'start')).toBe('email');
+    // …whereas the raw "current" position is the scheduled node.
+    expect(computeCurrentNodeId(logs)).toBe('courrier');
+  });
+
+  it('returns the last log when nothing is pending', () => {
+    const logs = [log('email', '2026-05-10'), log('sms', '2026-05-20')];
+    expect(computeFrontierNodeId(logs, 'start')).toBe('sms');
+  });
+
+  it('falls back to the start node when no action has actually happened', () => {
+    expect(computeFrontierNodeId([], 'start')).toBe('start');
+    expect(computeFrontierNodeId([log('email', '2026-06-01', 'pending')], 'start')).toBe('start');
   });
 });
 

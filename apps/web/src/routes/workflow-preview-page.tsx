@@ -14,7 +14,11 @@ import type { AppEdge, AppNode } from '@/features/editor/hooks/useWorkflowEditor
 import { NODE_CATALOG } from '@/features/editor/lib/node-catalog';
 import { patientDisplayName } from '@/features/dashboard/lib/derive-patients';
 import { computeActiveEdges } from '@/features/patient-preview/lib/active-edges';
-import { computeNextStep, computeNodeStatuses } from '@/features/patient-preview/lib/preview-exec';
+import {
+  computeFrontierNodeId,
+  computeNextStep,
+  computeNodeStatuses,
+} from '@/features/patient-preview/lib/preview-exec';
 import { ApiError } from '@/lib/api/client';
 import { createActionLog, listActionLogs } from '@/lib/api/action-logs';
 import { notifyApiError } from '@/lib/api/error-toast';
@@ -115,6 +119,14 @@ export function WorkflowPreviewPage() {
     return last ? last.nodeId : startNodeId;
   }, [logsAsc, startNodeId]);
 
+  // The node actually reached (ignores a trailing scheduled action). The next
+  // simulated step advances from here, so a patient whose final action is only
+  // scheduled can still fire it and reach the End (I-08).
+  const frontierNodeId = useMemo(
+    () => computeFrontierNodeId(logsAsc, startNodeId),
+    [logsAsc, startNodeId],
+  );
+
   // Edges the patient actually traversed (future paths + dead branches excluded).
   const activeEdgeIds = useMemo(
     () => (workflow ? computeActiveEdges(workflow.graph, logsAsc) : new Set<string>()),
@@ -186,13 +198,13 @@ export function WorkflowPreviewPage() {
   }, [workflow, activeEdgeIds]);
 
   const nextStep = useMemo(
-    () => (workflow ? computeNextStep(workflow.graph, currentNodeId) : { kind: 'none' as const }),
-    [workflow, currentNodeId],
+    () => (workflow ? computeNextStep(workflow.graph, frontierNodeId) : { kind: 'none' as const }),
+    [workflow, frontierNodeId],
   );
 
   const handleSimulate = useCallback(async () => {
     if (!workflow || !patientId) return;
-    const step = computeNextStep(workflow.graph, currentNodeId);
+    const step = computeNextStep(workflow.graph, frontierNodeId);
     if (step.kind !== 'channel') return;
 
     const actionStatus = randomStatus();
@@ -214,7 +226,7 @@ export function WorkflowPreviewPage() {
     } finally {
       setSimulating(false);
     }
-  }, [workflow, patientId, currentNodeId, refetchLogs]);
+  }, [workflow, patientId, frontierNodeId, refetchLogs]);
 
   if (!patientId) {
     return (
