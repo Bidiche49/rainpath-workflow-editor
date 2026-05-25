@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ActionLogSchema, ExecutionStateSchema } from './action-log';
+import { ActionLogSchema, CreateActionLogSchema, ExecutionStateSchema } from './action-log';
 
 describe('ActionLogSchema', () => {
   it('parses a valid action log', () => {
@@ -31,6 +31,33 @@ describe('ActionLogSchema', () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe('CreateActionLogSchema', () => {
+  it('accepts a payload without id and without occurredAt', () => {
+    const result = CreateActionLogSchema.safeParse({
+      patientId: 'p_1',
+      workflowId: 'wf_1',
+      nodeId: 'n_1',
+      channel: 'sms',
+      status: 'sent',
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('coerces occurredAt to a Date when provided', () => {
+    const parsed = CreateActionLogSchema.parse({
+      patientId: 'p_1',
+      workflowId: 'wf_1',
+      nodeId: 'n_1',
+      channel: 'email',
+      status: 'failed',
+      occurredAt: '2026-05-01T08:00:00.000Z',
+    });
+
+    expect(parsed.occurredAt).toBeInstanceOf(Date);
   });
 });
 

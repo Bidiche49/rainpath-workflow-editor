@@ -23,6 +23,15 @@ export const ActionLogSchema = z.object({
 });
 export type ActionLog = z.infer<typeof ActionLogSchema>;
 
+/**
+ * Payload accepted when recording a simulated relance: the server assigns the
+ * `id` and defaults `occurredAt` to "now" when omitted.
+ */
+export const CreateActionLogSchema = ActionLogSchema.omit({ id: true }).partial({
+  occurredAt: true,
+});
+export type CreateActionLogInput = z.infer<typeof CreateActionLogSchema>;
+
 /** Aggregate progression status of a patient through a workflow. */
 export const PatientStatusSchema = z.enum(['pending', 'in_progress', 'blocked', 'completed']);
 export type PatientStatus = z.infer<typeof PatientStatusSchema>;
