@@ -266,6 +266,17 @@ function makePatient(): Patient {
   };
 }
 
+/**
+ * French channel labels for log messages — mirrors the editor's node catalog
+ * (`letter` reads "courrier", never the raw English "letter").
+ */
+const CHANNEL_LABELS: Record<ChannelNodeType, string> = {
+  email: 'email',
+  sms: 'SMS',
+  whatsapp: 'WhatsApp',
+  letter: 'courrier',
+};
+
 /** A step a patient can walk through, mapping a graph channel node to a channel. */
 interface JourneyStep {
   nodeId: string;
@@ -411,14 +422,15 @@ function inProgressStory(patient: Patient, journey: JourneyStep[]): LogDraft[] {
     const step = journey[i];
     if (!step) break;
     const status: ActionStatus = i === 0 && firstFailed ? 'failed' : 'sent';
+    const label = CHANNEL_LABELS[step.channel];
     drafts.push({
       nodeId: step.nodeId,
       channel: step.channel,
       status,
       message:
         status === 'failed'
-          ? `Relance ${step.channel} en échec pour ${patient.fullName}`
-          : `Relance ${step.channel} envoyée à ${patient.fullName}`,
+          ? `Relance ${label} en échec pour ${patient.fullName}`
+          : `Relance ${label} envoyée à ${patient.fullName}`,
       notify: true,
     });
   }
@@ -429,7 +441,7 @@ function inProgressStory(patient: Patient, journey: JourneyStep[]): LogDraft[] {
       nodeId: next.nodeId,
       channel: next.channel,
       status: 'pending',
-      message: `Relance ${next.channel} planifiée pour ${patient.fullName}`,
+      message: `Relance ${CHANNEL_LABELS[next.channel]} planifiée pour ${patient.fullName}`,
       notify: false,
     });
   }
@@ -447,14 +459,15 @@ function completedStory(patient: Patient, journey: JourneyStep[]): LogDraft[] {
   const firstFailed = faker.datatype.boolean(0.25);
   return journey.map((step, i) => {
     const status: ActionStatus = i === 0 && firstFailed ? 'failed' : 'sent';
+    const label = CHANNEL_LABELS[step.channel];
     return {
       nodeId: step.nodeId,
       channel: step.channel,
       status,
       message:
         status === 'failed'
-          ? `Relance ${step.channel} en échec pour ${patient.fullName}`
-          : `Relance ${step.channel} envoyée à ${patient.fullName}`,
+          ? `Relance ${label} en échec pour ${patient.fullName}`
+          : `Relance ${label} envoyée à ${patient.fullName}`,
       notify: true,
     };
   });
