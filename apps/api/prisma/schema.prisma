@@ -1,0 +1,41 @@
+// RainPath — canonical data model.
+// `graph` and `settings` are JSON columns validated by @rainpath/schemas Zod
+// on both write and read (see docs/ARCHITECTURE.md § ADR-002).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Workflow {
+  id            String      @id @default(cuid())
+  name          String
+  description   String?
+  schemaVersion Int         @default(1)
+  graph         Json
+  settings      Json
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  actionLogs    ActionLog[]
+}
+
+model ActionLog {
+  id         String   @id @default(cuid())
+  patientId  String
+  workflowId String
+  nodeId     String
+  channel    String
+  status     String
+  message    String?
+  notifiedTo String?
+  occurredAt DateTime @default(now())
+
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@index([workflowId])
+}
