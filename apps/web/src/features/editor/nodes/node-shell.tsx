@@ -4,7 +4,7 @@ import { Handle, Position } from '@xyflow/react';
 import { AlertTriangle, Bell, type LucideIcon } from 'lucide-react';
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { getChannelStyles } from '@/lib/design-tokens';
+import { getChannelStyles, getExecRingStyles, type ExecState } from '@/lib/design-tokens';
 import { cn } from '@/lib/utils';
 
 import type { NodeStatus, NodeType } from '@rainpath/schemas';
@@ -14,6 +14,17 @@ const STATUS_DOT: Record<NodeStatus, string> = {
   pending: 'bg-slate-300',
   current: 'bg-blue-500 animate-pulse',
   done: 'bg-green-500',
+};
+
+/**
+ * Bridges the canonical `NodeStatus` (persisted) to the `ExecState` palette
+ * used by `getExecRingStyles` — the patient preview highlights nodes with a
+ * coloured ring on top of the status dot.
+ */
+const NODE_STATUS_TO_EXEC: Record<NodeStatus, ExecState> = {
+  pending: 'idle',
+  current: 'pending',
+  done: 'done',
 };
 
 export interface NotifyIndicator {
@@ -102,6 +113,9 @@ function NodeShellComponent({
         styles.border,
         styles.bg,
         selected && cn('ring-2', styles.ring),
+        // Preview-mode execution highlight: coloured ring + dim not-yet-reached.
+        status && getExecRingStyles(NODE_STATUS_TO_EXEC[status]).ring,
+        status === 'pending' && 'opacity-60',
       )}
     >
       {hasTarget && <Handle type="target" position={Position.Top} />}
