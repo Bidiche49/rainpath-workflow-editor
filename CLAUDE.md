@@ -80,7 +80,8 @@ docs/
 _Mis à jour à chaque fin de phase du sprint._
 
 - **Phase courante** : Sprint terminé.
-- **Dernier milestone** : Phase 3 livrée — P-01 (coverage globale ≥ 85% : web 98.5% lignes / 88.7% branches, schemas & api 100%), P-02 (README §7 préparation entretien), P-03 (mise à jour docs finales : CLAUDE.md, ARCHITECTURE.md, PLAN.md).
+- **Dernier milestone** : Phase 3 livrée — P-01 (coverage globale ≥ 85% : web 98% lignes / 89% branches, schemas 100%, api 100% lignes/fonctions/statements mais 86% branches), P-02 (README §7 préparation entretien), P-03 (mise à jour docs finales : CLAUDE.md, ARCHITECTURE.md, PLAN.md).
+- **Itération post-sprint** : durcissement (~2h, 30 commits après la clôture du sprint planifié) — UX d'édition, simulation patient nœud par nœud, seed de démo curaté et déterministe, règle « bloqué » recalée sur le dernier log (ADR-006), seuils coverage verrouillés à 85% sur web et api. Détail : `docs/PLAN.md` § « Itération post-sprint ».
 - **En cours** : —
 - **Prochain blocker** : aucun.
 - **Angle mort (résolu)** : le mismatch `ActionStatusSchema` (pending/sent/failed/skipped) ↔ états log design (sent/delivered/opened/rejected/scheduled) est résolu via le mapper `apps/web/src/lib/status-mapper.ts` (`mapActionStatusToLogStatus`), livré en I-04 et documenté README §7 « À améliorer » (l'enrichissement granulaire des statuts reste un travail backend futur).

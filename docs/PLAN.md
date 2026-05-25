@@ -254,12 +254,31 @@ F-01 ─┬─ F-02 ─ F-03
 
 **Phase 1 — détail des tracks** : Track A backend 12:49 → 13:05 (16 min, A-01 → A-04), Track B frontend 12:51 → 13:09 (18 min, B-01 → B-04). Wall-clock combiné ~20 min grâce à l'exécution parallèle.
 
+> Le tableau ci-dessus couvre le **sprint planifié** (Phases 0-3, clos à 14:24
+> sur le commit `b867b14`). Il a été suivi d'une itération de durcissement non
+> planifiée — voir ci-dessous. Wall-clock réel jusqu'au dernier commit :
+> **~5h** (11:55 → 16:51), dont ~2h30 de sprint planifié et ~2h de durcissement.
+
+### Itération post-sprint — durcissement (~2h, 30 commits, 14:43 → 16:51)
+
+Au-delà du sprint planifié, une seconde passe a suivi — déclenchée par un audit
+froid du rendu et des tests de jouabilité de la démo de bout en bout. Non
+prévue au PLAN, mais elle constitue la majeure partie de l'écart entre l'état
+documenté en Phase 3 et l'état réel du dépôt.
+
+- **Éditeur — UX d'édition** : garde-fou save + état du bouton, suppression (double-clic edge, trash au hover/sélection), handles plus gros et couleurs dynamiques, hiérarchie titre/sous-titre des nodes, description éditable dans les Réglages, fix du viewport ignoré dans le tracker `isDirty`.
+- **Onboarding** : modal stepper skippable et relançable.
+- **Patient view — simulation** : aperçu read-only (nodes déplaçables, handles inertes), grisage des branches et nodes hors-route puis de tous les nœuds après l'étape courante, simulation nœud par nœud s'arrêtant sur les attentes et conditions, nœud Fin « done », statut « Terminé » calculé sans log terminal.
+- **Seed** : refonte en seed de démo curaté et déterministe (sémantique pending=futur, patients terminés sur tous les workflows, libellés de canal en français).
+- **Dashboard** : refonte de la règle « bloqué » sur le dernier log et non l'historique (→ **ADR-006**).
+- **Repo / docs** : verrouillage des seuils coverage à 85% sur web et api, exécution série des suites e2e, clarification du runner `migrateGraph` (registre v1 vide), requalification d'ADR-007 en « Notes de mise en œuvre ».
+
 ### Écarts notables vs PLAN
 
 - **Infra Vitest extraite en chore séparé** : le setup Vitest (jsdom + testing-library) prévu dans l'acceptance de F-06 a été livré en commit `chore(web): setup Vitest avec jsdom et testing-library` distinct, avant B-00. Bootstrap d'infra ≠ feature → commit dédié.
 - **B-00 inséré** (tokens design canaux/statuts/exec + helpers anti-purge) entre F-07 et la Phase 1 : non prévu au plan initial, ajouté pour figer le design system avant les nodes. PLAN.md amendé a posteriori (`docs(plan): intègre B-00…`).
 - **status-mapper livré en I-04** (et non en lib autonome) : `apps/web/src/lib/status-mapper.ts` (`mapActionStatusToLogStatus`) résout le mismatch `ActionStatusSchema` ↔ états log design flaggé en fin de Phase 0. Cf ADR-006 et README §7.
-- **Extraction de modules métier purs** (non explicitement planifiée) : `derive-patients.ts`, `preview-exec.ts`, `validation.ts` sortis des composants React → testables à plat, à l'origine de la coverage web 98.5%. Documenté dans ARCHITECTURE.md § « Notes de mise en œuvre » (pratique standard, pas un ADR).
+- **Extraction de modules métier purs** (non explicitement planifiée) : `derive-patients.ts`, `preview-exec.ts`, `validation.ts` sortis des composants React → testables à plat, à l'origine de la coverage web 98%. Documenté dans ARCHITECTURE.md § « Notes de mise en œuvre » (pratique standard, pas un ADR).
 - **Chores hors tickets** : ajout deps `@xyflow/react` v12 + `dagre`, primitives shadcn `dropdown-menu`/`skeleton`, désactivation `exactOptionalPropertyTypes` (compat shadcn), logos officiels RainPath, ignore du dossier d'analyse design.
 - **Ordre P-01/P-02 inversé** : README §7 (P-02) committé avant le comblage coverage (P-01) — sans impact, dépendances respectées (tous deux dépendent de la Phase 2 complète).
 - **P-04 / P-05** (smoke test manuel, push final) : non matérialisés en commits dédiés (P-04 sans fix à committer, push géré hors ticket).
