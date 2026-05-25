@@ -23,9 +23,16 @@ const workflow: Workflow = {
     nodes: [
       { id: 'start', type: 'start', position: { x: 0, y: 0 }, data: {} },
       { id: 'email', type: 'email', position: { x: 0, y: 0 }, data: { notifySecretariat: true } },
+      { id: 'sms', type: 'sms', position: { x: 0, y: 0 }, data: { notifySecretariat: true } },
       { id: 'end', type: 'end', position: { x: 0, y: 0 }, data: {} },
     ],
-    edges: [],
+    // start → email → sms → end: a channel (sms) is reachable after email, none
+    // after sms, so the current node alone determines whether the journey is over.
+    edges: [
+      { id: 'e1', source: 'start', target: 'email' },
+      { id: 'e2', source: 'email', target: 'sms' },
+      { id: 'e3', source: 'sms', target: 'end' },
+    ],
     viewport: { x: 0, y: 0, zoom: 1 },
   },
   settings: { notificationEmail: 'secretariat@labo.fr' },
@@ -66,7 +73,19 @@ describe('derivePatients', () => {
     expect(a?.workflowName).toBe('Relance J+7');
   });
 
-  it('flags a patient with any failed relance as bloque', () => {
+  it('flags a stalled patient (failure, nothing scheduled) as bloque', () => {
+    // Current node `email` still has a downstream channel (sms) but nothing is
+    // scheduled and the last relance failed → the journey stalled.
+    const [row] = derivePatients(
+      [log({ patientId: 'pat_x.x_0001', nodeId: 'email', status: 'failed' })],
+      [workflow],
+    );
+    expect(row?.status).toBe('bloque');
+  });
+
+  it('keeps a patient with a re-scheduled relance en_cours despite a past failure', () => {
+    // A pending log means a relance is scheduled ahead, so the patient is still
+    // in progress even though an earlier step failed.
     const [row] = derivePatients(
       [
         log({ patientId: 'pat_x.x_0001', status: 'pending', occurredAt: new Date('2026-05-20') }),
@@ -74,14 +93,21 @@ describe('derivePatients', () => {
       ],
       [workflow],
     );
-    expect(row?.status).toBe('bloque');
+    expect(row?.status).toBe('en_cours');
   });
 
-  it('flags a patient who reached an end node as termine (over a failure)', () => {
+  it('flags a patient whose journey has no downstream channel as termine (over a failure)', () => {
+    // Current node `sms` is the last channel (only `end` is reachable after it),
+    // so the journey is over even though an earlier step failed.
     const [row] = derivePatients(
       [
-        log({ patientId: 'pat_y.y_0002', nodeId: 'end', occurredAt: new Date('2026-05-20') }),
-        log({ patientId: 'pat_y.y_0002', status: 'failed', occurredAt: new Date('2026-05-10') }),
+        log({ patientId: 'pat_y.y_0002', nodeId: 'sms', occurredAt: new Date('2026-05-20') }),
+        log({
+          patientId: 'pat_y.y_0002',
+          nodeId: 'email',
+          status: 'failed',
+          occurredAt: new Date('2026-05-10'),
+        }),
       ],
       [workflow],
     );

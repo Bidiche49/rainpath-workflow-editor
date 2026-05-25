@@ -27,9 +27,16 @@ function workflow(id: string, name: string): Workflow {
       nodes: [
         { id: 'start', type: 'start', position: { x: 0, y: 0 }, data: {} },
         { id: 'email', type: 'email', position: { x: 0, y: 0 }, data: { notifySecretariat: true } },
+        { id: 'sms', type: 'sms', position: { x: 0, y: 0 }, data: { notifySecretariat: true } },
         { id: 'end', type: 'end', position: { x: 0, y: 0 }, data: {} },
       ],
-      edges: [],
+      // start → email → sms → end: a relance on `email` still has `sms` ahead, so
+      // a failure there (with nothing scheduled) reads as a stalled journey.
+      edges: [
+        { id: 'e1', source: 'start', target: 'email' },
+        { id: 'e2', source: 'email', target: 'sms' },
+        { id: 'e3', source: 'sms', target: 'end' },
+      ],
       viewport: { x: 0, y: 0, zoom: 1 },
     },
     settings: { notificationEmail: 'secretariat@labo.fr' },
