@@ -297,14 +297,83 @@ interface LogDraft {
 
 type ActionLogCreate = Prisma.ActionLogCreateManyInput;
 
-/** Spread `count` dates over the last `spanDays` days, oldest first. */
-function spreadDates(count: number, spanDays: number): Date[] {
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Age bucket for a journey, measured as the age of its first (oldest) step. */
+type StoryAge = 'recent' | 'mid' | 'older';
+
+/**
+ * Pick how old an in-progress journey looks, so the dashboard surfaces patients
+ * at different stages instead of a uniform block ~20-28 days ago:
+ * ~30% recent, ~40% mid-course, ~30% older.
+ */
+function pickStoryAge(): StoryAge {
+  return faker.helpers.weightedArrayElement<StoryAge>([
+    { weight: 30, value: 'recent' },
+    { weight: 40, value: 'mid' },
+    { weight: 30, value: 'older' },
+  ]);
+}
+
+/** Age (in days ago) of the FIRST/oldest step for a given bucket. */
+function startAgeForBucket(age: StoryAge): number {
+  switch (age) {
+    case 'recent':
+      return faker.number.int({ min: 1, max: 5 });
+    case 'mid':
+      return faker.number.int({ min: 5, max: 12 });
+    case 'older':
+      return faker.number.int({ min: 15, max: 25 });
+  }
+}
+
+/**
+ * Ages (in days ago) for `count` past steps, oldest first (largest age).
+ * Walks forward from `startAge` towards now, spacing steps by 1-5 days. The gap
+ * is clamped so every step stays in the past (≥ 0.5 day) and strictly ordered —
+ * for short/recent journeys the spacing compresses rather than spilling into the
+ * future, which keeps `sent`/`failed`/`skipped` logs coherently in the past.
+ */
+function pastStepAges(count: number, startAge: number): number[] {
+  if (count <= 0) return [];
+  const ages = [startAge];
+  let current = startAge;
+  for (let i = 1; i < count; i++) {
+    const remaining = count - i;
+    const maxGap = Math.max(0.5, (current - 0.5) / remaining);
+    const gap = Math.min(faker.number.int({ min: 1, max: 5 }), maxGap);
+    current = Math.max(0.5, current - gap);
+    ages.push(current);
+  }
+  return ages;
+}
+
+/**
+ * Date spreading for a patient story, encoding the convention **pending = futur**.
+ *
+ * An ActionLog with status `pending` is "planifié / à venir", so its
+ * `occurredAt` is placed in the FUTURE (1-7 days after now, cumulative when
+ * several are scheduled). Logs that already happened (`sent` | `failed` |
+ * `skipped`) are placed in the PAST, oldest first, chronologically ordered and
+ * spaced ~1-5 days apart (see `pastStepAges`). Returns one Date per draft, in
+ * the same order as the input.
+ */
+function spreadDatesForStory(drafts: LogDraft[], startAge: number): Date[] {
   const now = Date.now();
-  const start = faker.number.int({ min: spanDays - 6, max: spanDays });
+  const pastCount = drafts.filter((draft) => draft.status !== 'pending').length;
+  const pastAges = pastStepAges(pastCount, startAge);
+
   const dates: Date[] = [];
-  for (let i = 0; i < count; i++) {
-    const daysAgo = Math.max(0, start - i * faker.number.int({ min: 2, max: 4 }));
-    dates.push(new Date(now - daysAgo * 24 * 60 * 60 * 1000));
+  let pastIndex = 0;
+  let daysAhead = 0;
+  for (const draft of drafts) {
+    if (draft.status === 'pending') {
+      daysAhead += faker.number.int({ min: 1, max: 7 });
+      dates.push(new Date(now + daysAhead * DAY_MS));
+    } else {
+      const age = pastAges[pastIndex++] ?? 0.5;
+      dates.push(new Date(now - age * DAY_MS));
+    }
   }
   return dates;
 }
@@ -400,56 +469,79 @@ async function main(): Promise<void> {
   });
 
   const logs: ActionLogCreate[] = [];
-  const pushStory = (patient: Patient, workflowId: string, drafts: LogDraft[]): void => {
-    const dates = spreadDates(drafts.length, 28);
+  /**
+   * Persist a patient story. `startAge` (age in days of the first step) defaults
+   * to a weighted bucket so in-progress journeys vary; special cases (blocked,
+   * completed) pass an explicit value to control their position in the past.
+   */
+  const pushStory = (
+    patient: Patient,
+    workflowId: string,
+    drafts: LogDraft[],
+    startAge: number = startAgeForBucket(pickStoryAge()),
+  ): void => {
+    const dates = spreadDatesForStory(drafts, startAge);
     drafts.forEach((draft, i) => {
       logs.push(draftToCreate(patient, workflowId, draft, dates[i] ?? new Date()));
     });
   };
 
   // --- Workflow J+7: 7 patients including the two special cases. ---
+  // Blocked: no pending step → every date stays in the past (mid-course age).
   const blocked = makePatient();
-  pushStory(blocked, j7.id, [
-    {
-      nodeId: 'email',
-      channel: 'email',
-      status: 'failed',
-      message: `Email rejeté pour ${blocked.fullName} (adresse invalide)`,
-      notify: true,
-    },
-    {
-      nodeId: 'whatsapp',
-      channel: 'whatsapp',
-      status: 'skipped',
-      message: `WhatsApp ignoré pour ${blocked.fullName} (aucun numéro WhatsApp)`,
-      notify: false,
-    },
-  ]);
+  pushStory(
+    blocked,
+    j7.id,
+    [
+      {
+        nodeId: 'email',
+        channel: 'email',
+        status: 'failed',
+        message: `Email rejeté pour ${blocked.fullName} (adresse invalide)`,
+        notify: true,
+      },
+      {
+        nodeId: 'whatsapp',
+        channel: 'whatsapp',
+        status: 'skipped',
+        message: `WhatsApp ignoré pour ${blocked.fullName} (aucun numéro WhatsApp)`,
+        notify: false,
+      },
+    ],
+    faker.number.int({ min: 8, max: 14 }),
+  );
 
+  // Completed: no pending step → all dates in the past, spread over ~15-25 days
+  // to read as a finished journey.
   const completed = makePatient();
-  pushStory(completed, j7.id, [
-    {
-      nodeId: 'email',
-      channel: 'email',
-      status: 'failed',
-      message: `Email rejeté pour ${completed.fullName}`,
-      notify: true,
-    },
-    {
-      nodeId: 'whatsapp',
-      channel: 'whatsapp',
-      status: 'sent',
-      message: `WhatsApp envoyé à ${completed.fullName}`,
-      notify: true,
-    },
-    {
-      nodeId: 'letter',
-      channel: 'letter',
-      status: 'sent',
-      message: `Courrier postal envoyé à ${completed.fullName}`,
-      notify: true,
-    },
-  ]);
+  pushStory(
+    completed,
+    j7.id,
+    [
+      {
+        nodeId: 'email',
+        channel: 'email',
+        status: 'failed',
+        message: `Email rejeté pour ${completed.fullName}`,
+        notify: true,
+      },
+      {
+        nodeId: 'whatsapp',
+        channel: 'whatsapp',
+        status: 'sent',
+        message: `WhatsApp envoyé à ${completed.fullName}`,
+        notify: true,
+      },
+      {
+        nodeId: 'letter',
+        channel: 'letter',
+        status: 'sent',
+        message: `Courrier postal envoyé à ${completed.fullName}`,
+        notify: true,
+      },
+    ],
+    faker.number.int({ min: 20, max: 25 }),
+  );
 
   for (let i = 0; i < 5; i++) {
     const patient = makePatient();
@@ -473,8 +565,29 @@ async function main(): Promise<void> {
   const workflowCount = await prisma.workflow.count();
   const logCount = await prisma.actionLog.count();
   const patientCount = new Set(logs.map((log) => log.patientId)).size;
+
+  // Date sanity check: pending logs must be in the future, the rest in the past.
+  const now = Date.now();
+  const fmt = (d: Date): string => d.toISOString().slice(0, 10);
+  const pending = logs.filter((log) => log.status === 'pending');
+  const past = logs.filter((log) => log.status !== 'pending');
+  const pendingDates = pending.map((log) => new Date(log.occurredAt as Date));
+  const pastDates = past.map((log) => new Date(log.occurredAt as Date));
+  const pendingInFuture = pendingDates.every((d) => d.getTime() > now);
+  const pastInPast = pastDates.every((d) => d.getTime() <= now);
+  const minTime = (dates: Date[]): string =>
+    dates.length ? fmt(new Date(Math.min(...dates.map((d) => d.getTime())))) : '—';
+  const maxTime = (dates: Date[]): string =>
+    dates.length ? fmt(new Date(Math.max(...dates.map((d) => d.getTime())))) : '—';
+
   console.log(
     `Seed terminé : ${workflowCount} workflows, ${patientCount} patients, ${logCount} action logs.`,
+  );
+  console.log(
+    `  • ${past.length} logs passés (sent/failed/skipped) du ${minTime(pastDates)} au ${maxTime(pastDates)} — tous dans le passé : ${pastInPast ? 'OK' : 'KO'}`,
+  );
+  console.log(
+    `  • ${pending.length} logs pending du ${minTime(pendingDates)} au ${maxTime(pendingDates)} — tous dans le futur : ${pendingInFuture ? 'OK' : 'KO'}`,
   );
 }
 
