@@ -38,6 +38,7 @@ import type { GraphValidationResult } from '@/features/editor/lib/validation';
 import { ApiError } from '@/lib/api/client';
 import { notifyApiError } from '@/lib/api/error-toast';
 import { getWorkflow, updateWorkflow } from '@/lib/api/workflows';
+import { useBackNavigation } from '@/lib/hooks/useBackNavigation';
 import { useBeforeUnload } from '@/lib/hooks/useBeforeUnload';
 import { useKeyboardShortcuts } from '@/lib/hooks/useKeyboardShortcuts';
 
@@ -48,6 +49,7 @@ const emailSchema = z.string().email();
 export function WorkflowEditPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const goBack = useBackNavigation('/workflows');
   const editor = useWorkflowEditor();
 
   const [status, setStatus] = useState<LoadStatus>('loading');
@@ -259,12 +261,7 @@ export function WorkflowEditPage() {
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col">
       <header className="flex h-14 flex-shrink-0 items-center gap-2 border-b px-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Retour à la liste"
-          onClick={() => navigate('/workflows')}
-        >
+        <Button variant="ghost" size="icon" aria-label="Retour" onClick={goBack}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
 

@@ -19,6 +19,7 @@ import { createActionLog, listActionLogs } from '@/lib/api/action-logs';
 import { notifyApiError } from '@/lib/api/error-toast';
 import { getWorkflow } from '@/lib/api/workflows';
 import { getStatusBadgeStyles, type LogStatus } from '@/lib/design-tokens';
+import { useBackNavigation } from '@/lib/hooks/useBackNavigation';
 import { formatRelativeTime } from '@/lib/relative-time';
 import { mapActionStatusToLogStatus } from '@/lib/status-mapper';
 import { cn } from '@/lib/utils';
@@ -63,6 +64,7 @@ export function WorkflowPreviewPage() {
   const [searchParams] = useSearchParams();
   const patientId = searchParams.get('patientId');
   const navigate = useNavigate();
+  const goBack = useBackNavigation('/');
 
   const [status, setStatus] = useState<LoadStatus>('loading');
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
@@ -198,12 +200,7 @@ export function WorkflowPreviewPage() {
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col">
       <header className="flex h-14 flex-shrink-0 items-center gap-3 border-b px-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Retour à l'éditeur"
-          onClick={() => navigate(`/workflows/${workflow.id}/edit`)}
-        >
+        <Button variant="ghost" size="icon" aria-label="Retour" onClick={goBack}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <span className="text-sm font-semibold">{workflow.name}</span>
